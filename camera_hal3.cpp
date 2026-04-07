@@ -143,15 +143,11 @@ static camera_metadata_t *build_static_info(void)
     fn_add_meta(m, ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, active_array, 4);
     fn_add_meta(m, ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixel_array, 2);
     fn_add_meta(m, ANDROID_SCALER_AVAILABLE_FORMATS, avail_formats, 2);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, avail_stream_configs, 28);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS, min_frame_durations, 12);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_STALL_DURATIONS, stall_durations, 4);
-    fn_add_meta(m, ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL, &hw_level, 1);
     fn_add_meta(m, ANDROID_CONTROL_MAX_REGIONS, max_regions, 3);
-    fn_add_meta(m, ANDROID_REQUEST_AVAILABLE_CAPABILITIES, avail_caps, 1);
-    fn_add_meta(m, ANDROID_REQUEST_AVAILABLE_REQUEST_KEYS, request_keys, 1);
-    fn_add_meta(m, ANDROID_REQUEST_AVAILABLE_RESULT_KEYS, result_keys, 1);
-    fn_add_meta(m, ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS, chars_keys, 1);
+
+    (void)avail_stream_configs; (void)min_frame_durations;
+    (void)stall_durations; (void)hw_level; (void)avail_caps;
+    (void)request_keys; (void)result_keys; (void)chars_keys;
 
     return m;
 }
@@ -371,14 +367,15 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     if (!request || request->num_output_buffers == 0) return -EINVAL;
 
     uint32_t frame_num = request->frame_number;
-    camera3_stream_buffer_t *out = &request->output_buffers[0];
+    const camera3_stream_buffer_t *out_const = &request->output_buffers[0];
+    camera3_stream_buffer_t out_copy = *out_const;
 
     /* Find or create NvMMBuffer for this gralloc handle */
     NvMMBuffer *nvmm = NULL;
 
     /* Check pre-linked buffers */
     for (int i = 0; i < ctx->stream.num_bufs; i++) {
-        if (ctx->stream.anb_handles[i] == out->buffer) {
+        if (ctx->stream.anb_handles[i] == out_copy.buffer) {
             nvmm = &ctx->stream.nvmm_bufs[i];
             nvmm->Payload.Surfaces.Empty = NV_TRUE;
             break;
@@ -388,8 +385,8 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     /* Not pre-linked — link on the fly */
     if (!nvmm && ctx->stream.num_bufs < MAX_BUFFERS) {
         int idx = ctx->stream.num_bufs;
-        ctx->stream.anb_handles[idx] = out->buffer;
-        if (link_buffer(out->buffer, &ctx->stream.nvmm_bufs[idx], idx) == 0) {
+        ctx->stream.anb_handles[idx] = out_copy.buffer;
+        if (link_buffer(out_copy.buffer, &ctx->stream.nvmm_bufs[idx], idx) == 0) {
             nvmm = &ctx->stream.nvmm_bufs[idx];
             ctx->stream.num_bufs++;
         }
@@ -436,13 +433,12 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     result.frame_number = frame_num;
     result.num_output_buffers = 1;
 
-    camera3_stream_buffer_t result_buf = *out;
+    camera3_stream_buffer_t result_buf = out_copy;
     result_buf.status = ctx->frame_done ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
     result_buf.release_fence = -1;
     result.output_buffers = &result_buf;
 
     result.result = build_result_meta(frame_num);
-    result.partial_result = 1;
 
     ctx->callback_ops->process_capture_result(ctx->callback_ops, &result);
 
