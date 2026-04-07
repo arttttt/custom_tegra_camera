@@ -177,11 +177,17 @@ typedef enum {
     NvCameraCoreEvent_Force32 = 0x7FFFFFFF,
 } NvCameraCoreEvent;
 
-/* Sensor mode (simplified from nvmm_camera_types.h) */
+/* NvSize (from nvcommon.h) */
 typedef struct {
     NvS32 width;
     NvS32 height;
-    /* Additional fields exist but not needed for minimal HAL */
+} NvSize;
+
+/* Sensor mode (from nvmm_camera_types.h) — full struct, 16 bytes */
+typedef struct {
+    NvSize Resolution;
+    NvF32 FrameRate;
+    NvColorFormat ColorFormat;
 } NvMMCameraSensorMode;
 
 /*
