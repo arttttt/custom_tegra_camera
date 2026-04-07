@@ -128,7 +128,7 @@ static const struct {
     int   facing;
     int   orientation;
 } g_sensors[] = {
-    { 0, CAMERA_FACING_FRONT, 270 },
+    { 1, CAMERA_FACING_FRONT, 270 },
 };
 
 #define NUM_CAMERAS (sizeof(g_sensors) / sizeof(g_sensors[0]))
