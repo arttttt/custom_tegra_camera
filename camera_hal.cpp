@@ -276,7 +276,7 @@ static void *preview_thread_func(void *arg)
     NvMMBuffer *out_bufs[1];
 
     /* Write diagnostic log to file — logcat buffer overflows with NvOsDebugPrintf spam */
-    FILE *logf = fopen("/data/local/tmp/camera_hal.log", "w");
+    FILE *logf = fopen("/sdcard/camera_hal.log", "w");
 
     ALOGI("preview_thread: configuring window %dx%d NV21 (nvgr=%s)",
           preview_w, preview_h, fn_nvgr_get_surfaces ? "yes" : "no");
