@@ -282,13 +282,10 @@ static void *preview_thread_func(void *arg)
     win->set_buffer_count(win, 4);
     win->set_buffers_geometry(win, preview_w, preview_h, HAL_PIXEL_FORMAT_YCrCb_420_SP);
 
-    /* Set sensor mode */
-    NvMMCameraSensorMode mode;
-    memset(&mode, 0, sizeof(mode));
-    mode.width = preview_w;
-    mode.height = preview_h;
-    NvError err = fn_SetSensorMode(ctx->core_handle, mode);
-    ALOGI("preview_thread: SetSensorMode %dx%d → %d", preview_w, preview_h, err);
+    ALOGI("preview_thread: sizeof(NvMMBuffer)=%zu sizeof(NvRmSurface)=%zu sizeof(NvMMSurfaceDescriptor)=%zu",
+          sizeof(NvMMBuffer), sizeof(NvRmSurface), sizeof(NvMMSurfaceDescriptor));
+
+    NvError err;
 
     while (ctx->preview_running) {
         buffer_handle_t *buf = NULL;
