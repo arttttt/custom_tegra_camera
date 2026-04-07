@@ -241,6 +241,14 @@ static int gralloc_to_nvmm(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
         return -1;
     }
 
+    if (buf_id < 3) {
+        ALOGI("gralloc_to_nvmm: buf_id=%u surf_count=%zu "
+              "surf[0]: %ux%u fmt=0x%x pitch=%u hMem=%p",
+              buf_id, surf_count,
+              surfs[0].Width, surfs[0].Height,
+              surfs[0].ColorFormat, surfs[0].Pitch, surfs[0].hMem);
+    }
+
     memset(nvmm, 0, sizeof(*nvmm));
     nvmm->StructSize = sizeof(NvMMBuffer);
     nvmm->BufferID = buf_id;
@@ -294,32 +302,42 @@ static void *preview_thread_func(void *arg)
         }
 
         /* Convert gralloc buffer → NvMMBuffer and submit capture request */
-        if (fn_nvgr_get_surfaces &&
-            gralloc_to_nvmm(buf, &nvmm_buf, frame_count) == 0) {
+        if (fn_nvgr_get_surfaces) {
+            int cvt = gralloc_to_nvmm(buf, &nvmm_buf, frame_count);
+            if (cvt == 0) {
+                out_bufs[0] = &nvmm_buf;
 
-            out_bufs[0] = &nvmm_buf;
+                NvCameraCoreFrameCaptureRequest req;
+                memset(&req, 0, sizeof(req));
+                req.FrameNumber = frame_count;
+                req.NumOfOutputBuffers = 1;
+                req.ppOutputBuffers = out_bufs;
 
-            NvCameraCoreFrameCaptureRequest req;
-            memset(&req, 0, sizeof(req));
-            req.FrameNumber = frame_count;
-            req.NumOfOutputBuffers = 1;
-            req.ppOutputBuffers = out_bufs;
+                g_frame_done = 0;
+                err = fn_FrameCaptureRequest(ctx->core_handle, &req);
 
-            g_frame_done = 0;
-            err = fn_FrameCaptureRequest(ctx->core_handle, &req);
-            if (err == NvSuccess) {
-                /* Wait for CompletedBuffer callback (max 100ms) */
-                int wait = 0;
-                while (!g_frame_done && wait < 100) {
-                    usleep(1000);
-                    wait++;
-                }
-                if (!g_frame_done)
-                    ALOGW("preview_thread: frame %d timeout", frame_count);
-            } else {
-                if (frame_count < 5)
+                if (frame_count < 3)
+                    ALOGI("preview_thread: FrameCaptureRequest frame %d → %d",
+                          frame_count, err);
+
+                if (err == NvSuccess) {
+                    /* Wait for CompletedBuffer callback (max 200ms) */
+                    int wait = 0;
+                    while (!g_frame_done && wait < 200) {
+                        usleep(1000);
+                        wait++;
+                    }
+                    if (frame_count < 3)
+                        ALOGI("preview_thread: frame %d done=%d wait=%dms",
+                              frame_count, g_frame_done, wait);
+                } else if (frame_count < 10) {
                     ALOGE("preview_thread: FrameCaptureRequest failed: %d", err);
+                }
+            } else if (frame_count < 3) {
+                ALOGE("preview_thread: gralloc_to_nvmm failed for frame %d", frame_count);
             }
+        } else if (frame_count == 0) {
+            ALOGW("preview_thread: no nvgr — skipping capture");
         }
 
         win->set_timestamp(win, frame_count * 33333333LL);
