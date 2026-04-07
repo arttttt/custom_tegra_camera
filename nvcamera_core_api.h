@@ -123,9 +123,15 @@ typedef enum {
     NvMMPayloadType_MemPointer,
 } NvMMPayloadType;
 
-/* Payload metadata (opaque, 16 bytes) */
+/*
+ * Payload metadata (from nvmm_buffertype.h).
+ * Contains timestamp, flags, and metadata union (128 bytes total).
+ */
 typedef struct {
-    NvU32 data[4];
+    NvU64 TimeStamp;          /* 8 bytes */
+    NvU32 BufferFlags;        /* 4 bytes */
+    NvU32 BufferMetaDataType; /* 4 bytes (enum) */
+    NvU8  MetaDataUnion[112]; /* largest member: 112 bytes */
 } NvMMPayloadMetadata;
 
 /* Memory reference (for non-surface payloads) */
