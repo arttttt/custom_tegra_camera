@@ -186,6 +186,34 @@ static camera_metadata_t *build_static_info(void)
     fn_add_meta(m, ANDROID_SCALER_AVAILABLE_PROCESSED_MIN_DURATIONS, processed_min_dur, 4);
     fn_add_meta(m, ANDROID_SCALER_AVAILABLE_JPEG_MIN_DURATIONS, jpeg_min_dur, 2);
 
+    /* JPEG thumbnail sizes */
+    int32_t thumb_sizes[] = {0, 0, 160, 120, 320, 240};
+    fn_add_meta(m, ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES, thumb_sizes, 6);
+
+    /* Flash */
+    uint8_t flash_available = 0;
+    fn_add_meta(m, ANDROID_FLASH_INFO_AVAILABLE, &flash_available, 1);
+
+    /* Video stabilization */
+    uint8_t vstab_modes[] = {0}; /* OFF */
+    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES, vstab_modes, 1);
+
+    /* Max digital zoom */
+    float max_zoom = 1.0f;
+    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM, &max_zoom, 1);
+
+    /* Physical sensor size (mm) — OV5693 1/4" approx */
+    float physical_size[] = {3.67f, 2.74f};
+    fn_add_meta(m, ANDROID_SENSOR_INFO_PHYSICAL_SIZE, physical_size, 2);
+
+    /* Face detect */
+    uint8_t face_detect_modes[] = {0}; /* OFF */
+    fn_add_meta(m, ANDROID_STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES, face_detect_modes, 1);
+
+    /* Lens */
+    float min_focus_dist = 0.0f; /* fixed focus */
+    fn_add_meta(m, ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE, &min_focus_dist, 1);
+
     (void)avail_stream_configs; (void)min_frame_durations;
     (void)stall_durations; (void)hw_level; (void)avail_caps;
     (void)request_keys; (void)result_keys; (void)chars_keys;
