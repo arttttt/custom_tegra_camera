@@ -11,6 +11,7 @@
 #include <hardware/camera.h>
 #include <hardware/hardware.h>
 
+#include <stdio.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
@@ -274,16 +275,20 @@ static void *preview_thread_func(void *arg)
     NvMMBuffer nvmm_buf;
     NvMMBuffer *out_bufs[1];
 
+    /* Write diagnostic log to file — logcat buffer overflows with NvOsDebugPrintf spam */
+    FILE *logf = fopen("/data/local/tmp/camera_hal.log", "w");
+
     ALOGI("preview_thread: configuring window %dx%d NV21 (nvgr=%s)",
           preview_w, preview_h, fn_nvgr_get_surfaces ? "yes" : "no");
+    if (logf) fprintf(logf, "preview_thread: start nvgr=%d\n", !!fn_nvgr_get_surfaces);
 
     /* Configure preview window */
     win->set_usage(win, GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_HW_TEXTURE);
     win->set_buffer_count(win, 4);
     win->set_buffers_geometry(win, preview_w, preview_h, HAL_PIXEL_FORMAT_YCrCb_420_SP);
 
-    ALOGI("preview_thread: sizeof(NvMMBuffer)=%zu sizeof(NvMMCameraSensorMode)=%zu",
-          sizeof(NvMMBuffer), sizeof(NvMMCameraSensorMode));
+    if (logf) fprintf(logf, "sizeof: NvMMBuffer=%zu NvMMCameraSensorMode=%zu NvRmSurface=%zu\n",
+                      sizeof(NvMMBuffer), sizeof(NvMMCameraSensorMode), sizeof(NvRmSurface));
 
     /* Set sensor mode — OV5693 native 2592x1944, but request preview size */
     NvMMCameraSensorMode mode;
@@ -292,8 +297,7 @@ static void *preview_thread_func(void *arg)
     mode.Resolution.height = preview_h;
     mode.FrameRate = 30.0f;
     NvError err = fn_SetSensorMode(ctx->core_handle, mode);
-    ALOGI("preview_thread: SetSensorMode %dx%d@%.0f → %d",
-          preview_w, preview_h, mode.FrameRate, err);
+    if (logf) { fprintf(logf, "SetSensorMode %dx%d@30 -> %d\n", preview_w, preview_h, err); fflush(logf); }
 
     while (ctx->preview_running) {
         buffer_handle_t *buf = NULL;
@@ -321,9 +325,8 @@ static void *preview_thread_func(void *arg)
                 g_frame_done = 0;
                 err = fn_FrameCaptureRequest(ctx->core_handle, &req);
 
-                if (frame_count < 3)
-                    ALOGI("preview_thread: FrameCaptureRequest frame %d → %d",
-                          frame_count, err);
+                if (logf && frame_count < 5)
+                    fprintf(logf, "FrameCaptureRequest frame %d -> %d\n", frame_count, err);
 
                 if (err == NvSuccess) {
                     /* Wait for CompletedBuffer callback (max 200ms) */
@@ -332,9 +335,9 @@ static void *preview_thread_func(void *arg)
                         usleep(1000);
                         wait++;
                     }
-                    if (frame_count < 3)
-                        ALOGI("preview_thread: frame %d done=%d wait=%dms",
-                              frame_count, g_frame_done, wait);
+                    if (logf && frame_count < 5)
+                        fprintf(logf, "frame %d done=%d wait=%dms\n",
+                                frame_count, g_frame_done, wait);
                 } else if (frame_count < 10) {
                     ALOGE("preview_thread: FrameCaptureRequest failed: %d", err);
                 }
@@ -354,6 +357,7 @@ static void *preview_thread_func(void *arg)
     }
 
     ALOGI("preview_thread: stopped after %d frames", frame_count);
+    if (logf) { fprintf(logf, "stopped after %d frames\n", frame_count); fclose(logf); }
     return NULL;
 }
 
