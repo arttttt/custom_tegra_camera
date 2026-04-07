@@ -293,8 +293,8 @@ static void *preview_thread_func(void *arg)
     /* Set sensor mode — OV5693 native 2592x1944, but request preview size */
     NvMMCameraSensorMode mode;
     memset(&mode, 0, sizeof(mode));
-    mode.Resolution.width = preview_w;
-    mode.Resolution.height = preview_h;
+    mode.Resolution.width = 2592;
+    mode.Resolution.height = 1944;
     mode.FrameRate = 30.0f;
     NvError err = fn_SetSensorMode(ctx->core_handle, mode);
     if (logf) { fprintf(logf, "SetSensorMode %dx%d@30 -> %d\n", preview_w, preview_h, err); fflush(logf); }
