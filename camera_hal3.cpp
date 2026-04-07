@@ -485,32 +485,54 @@ static camera3_device_ops_t g_hal3_ops = {
 static int g_detect_done;
 static camera_metadata_t *g_static_info;
 
+static int g_num_cameras;
+
 static int hal3_get_number_of_cameras(void)
 {
     if (!g_detect_done) {
         g_logf = fopen("/data/camera_hal.log", "w");
         FLOG("=== Camera HAL3 init ===\n");
 
-        if (load_libs() == 0 && fn_DeviceDetect) {
+        if (load_libs() != 0) {
+            FLOG("FATAL: load_libs failed\n");
+            g_detect_done = 1;
+            g_num_cameras = 0;
+            return 0;
+        }
+
+        if (fn_DeviceDetect) {
             FLOG("NvMMCameraDeviceDetect...\n");
             fn_DeviceDetect();
             FLOG("NvMMCameraDeviceDetect done\n");
         }
+
         g_static_info = build_static_info();
+        FLOG("static_info=%p alloc_meta=%p add_meta=%p\n",
+             g_static_info, fn_alloc_meta, fn_add_meta);
+
+        /* If metadata failed, report 0 cameras to prevent crash */
+        if (!g_static_info) {
+            FLOG("WARNING: no metadata, reporting 0 cameras\n");
+            g_num_cameras = 0;
+        } else {
+            g_num_cameras = 1;
+        }
         g_detect_done = 1;
     }
-    return 1; /* OV5693 front only */
+    return g_num_cameras;
 }
 
 static int hal3_get_camera_info(int camera_id, struct camera_info *info)
 {
-    if (camera_id != 0) return -EINVAL;
     if (!g_detect_done) hal3_get_number_of_cameras();
+    if (camera_id < 0 || camera_id >= g_num_cameras) return -EINVAL;
+    if (!g_static_info) return -ENODEV;
 
     info->facing = CAMERA_FACING_FRONT;
     info->orientation = 270;
     info->device_version = CAMERA_DEVICE_API_VERSION_3_0;
     info->static_camera_characteristics = g_static_info;
+    FLOG("get_camera_info: id=%d OK\n", camera_id);
     return 0;
 }
 
