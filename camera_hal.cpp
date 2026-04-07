@@ -115,6 +115,9 @@ struct camera_context {
     int32_t                         msg_type;
 };
 
+/* State shared between preview thread and NvCameraCore callback */
+static volatile int g_frame_done;
+
 /*
  * Sensor table: only OV5693 front for now (IMX179 rear has HW issue).
  * GUID = 0 means "use sensor index" — stock HAL populates GUIDs dynamically
@@ -251,9 +254,6 @@ static int gralloc_to_nvmm(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
 
     return 0;
 }
-
-/* State shared between preview thread and NvCameraCore callback */
-static volatile int g_frame_done;
 
 /* Preview thread: dequeue → convert → NvCameraCore capture → enqueue */
 static void *preview_thread_func(void *arg)
