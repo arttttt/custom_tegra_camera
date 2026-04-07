@@ -95,13 +95,12 @@ struct camera_context {
     int32_t                         msg_type;
 };
 
-/* Sensor table: mocha has 2 cameras */
+/* Sensor table: only OV5693 front for now (IMX179 rear has HW issue) */
 static const struct {
     NvU64 guid;
     int   facing;
     int   orientation;
 } g_sensors[] = {
-    { SENSOR_BAYER_IMX179_GUID,       CAMERA_FACING_BACK,  90 },
     { SENSOR_BAYER_OV5693_FRONT_GUID, CAMERA_FACING_FRONT, 270 },
 };
 
