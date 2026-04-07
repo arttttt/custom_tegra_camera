@@ -102,7 +102,7 @@ static camera_metadata_t *build_static_info(void)
 {
     if (!fn_alloc_meta || !fn_add_meta) return NULL;
 
-    camera_metadata_t *m = fn_alloc_meta(30, 512);
+    camera_metadata_t *m = fn_alloc_meta(50, 2048);
     if (!m) return NULL;
 
     /* Minimal static characteristics for camera service to work */
@@ -137,6 +137,22 @@ static camera_metadata_t *build_static_info(void)
     int32_t result_keys[] = {0};
     int32_t chars_keys[] = {0};
 
+    /* AE fps ranges — required by Camera2-Parameters */
+    int32_t ae_fps_ranges[] = {15, 30};
+    int32_t ae_compensation_range[] = {-4, 4};
+    float ae_compensation_step[] = {0.5f}; /* rational as float */
+    uint8_t ae_available_modes[] = {0, 1}; /* OFF, ON */
+    uint8_t awb_available_modes[] = {0, 1}; /* OFF, AUTO */
+    uint8_t af_available_modes[] = {0}; /* OFF */
+    uint8_t avail_effects[] = {0}; /* OFF */
+    uint8_t avail_scene_modes[] = {0}; /* DISABLED */
+    uint8_t avail_antibanding[] = {0}; /* OFF */
+    float focal_lengths[] = {3.5f};
+    float apertures[] = {2.0f};
+    int32_t max_face_count[] = {0};
+    int64_t exposure_range[] = {1000000LL, 300000000LL}; /* 1ms - 300ms */
+    int32_t sensitivity_range[] = {100, 1600};
+
     fn_add_meta(m, ANDROID_LENS_FACING, &facing, 1);
     fn_add_meta(m, ANDROID_SENSOR_ORIENTATION, &orientation, 1);
     fn_add_meta(m, ANDROID_REQUEST_MAX_NUM_OUTPUT_STREAMS, max_output_streams, 3);
@@ -144,6 +160,20 @@ static camera_metadata_t *build_static_info(void)
     fn_add_meta(m, ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixel_array, 2);
     fn_add_meta(m, ANDROID_SCALER_AVAILABLE_FORMATS, avail_formats, 2);
     fn_add_meta(m, ANDROID_CONTROL_MAX_REGIONS, max_regions, 3);
+    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES, ae_fps_ranges, 2);
+    fn_add_meta(m, ANDROID_CONTROL_AE_COMPENSATION_RANGE, ae_compensation_range, 2);
+    fn_add_meta(m, ANDROID_CONTROL_AE_COMPENSATION_STEP, ae_compensation_step, 1);
+    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_MODES, ae_available_modes, 2);
+    fn_add_meta(m, ANDROID_CONTROL_AWB_AVAILABLE_MODES, awb_available_modes, 2);
+    fn_add_meta(m, ANDROID_CONTROL_AF_AVAILABLE_MODES, af_available_modes, 1);
+    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_EFFECTS, avail_effects, 1);
+    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_SCENE_MODES, avail_scene_modes, 1);
+    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, avail_antibanding, 1);
+    fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS, focal_lengths, 1);
+    fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_APERTURES, apertures, 1);
+    fn_add_meta(m, ANDROID_STATISTICS_INFO_MAX_FACE_COUNT, max_face_count, 1);
+    fn_add_meta(m, ANDROID_SENSOR_INFO_EXPOSURE_TIME_RANGE, exposure_range, 2);
+    fn_add_meta(m, ANDROID_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
 
     (void)avail_stream_configs; (void)min_frame_durations;
     (void)stall_durations; (void)hw_level; (void)avail_caps;
