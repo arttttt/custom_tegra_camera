@@ -23,6 +23,25 @@
 
 #include "nvcamera_core_api.h"
 
+/*
+ * NVIDIA-specific camera_metadata tag IDs.
+ * Stock MIUI firmware has extra tags (highFpsRecordingMode) in control section,
+ * shifting IDs by +1 vs AOSP. We hardcode correct device IDs here.
+ */
+#define NV_ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES  0x10013
+#define NV_ANDROID_CONTROL_AE_AVAILABLE_MODES              0x10014
+#define NV_ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES  0x10015
+#define NV_ANDROID_CONTROL_AE_COMPENSATION_RANGE           0x10016
+#define NV_ANDROID_CONTROL_AE_COMPENSATION_STEP            0x10017
+#define NV_ANDROID_CONTROL_AF_AVAILABLE_MODES              0x10018
+#define NV_ANDROID_CONTROL_AVAILABLE_EFFECTS               0x10019
+#define NV_ANDROID_CONTROL_AVAILABLE_SCENE_MODES           0x1001a
+#define NV_ANDROID_CONTROL_AVAILABLE_VIDEO_STAB_MODES      0x1001b
+#define NV_ANDROID_CONTROL_AWB_AVAILABLE_MODES             0x1001c
+#define NV_ANDROID_CONTROL_MAX_REGIONS                     0x1001d
+
+/* These sections have no NVIDIA additions — use AOSP IDs directly */
+
 /* Pixel formats & gralloc usage */
 #define HAL_PIXEL_FORMAT_YCrCb_420_SP       0x11
 #define HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED 0x22
@@ -159,16 +178,16 @@ static camera_metadata_t *build_static_info(void)
     fn_add_meta(m, ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, active_array, 4);
     fn_add_meta(m, ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixel_array, 2);
     fn_add_meta(m, ANDROID_SCALER_AVAILABLE_FORMATS, avail_formats, 2);
-    fn_add_meta(m, ANDROID_CONTROL_MAX_REGIONS, max_regions, 3);
-    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES, ae_fps_ranges, 2);
-    fn_add_meta(m, ANDROID_CONTROL_AE_COMPENSATION_RANGE, ae_compensation_range, 2);
-    fn_add_meta(m, ANDROID_CONTROL_AE_COMPENSATION_STEP, ae_compensation_step, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_MODES, ae_available_modes, 2);
-    fn_add_meta(m, ANDROID_CONTROL_AWB_AVAILABLE_MODES, awb_available_modes, 2);
-    fn_add_meta(m, ANDROID_CONTROL_AF_AVAILABLE_MODES, af_available_modes, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_EFFECTS, avail_effects, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_SCENE_MODES, avail_scene_modes, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, avail_antibanding, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_MAX_REGIONS, max_regions, 3);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES, ae_fps_ranges, 2);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AE_COMPENSATION_RANGE, ae_compensation_range, 2);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AE_COMPENSATION_STEP, ae_compensation_step, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_MODES, ae_available_modes, 2);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AWB_AVAILABLE_MODES, awb_available_modes, 2);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AF_AVAILABLE_MODES, af_available_modes, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_EFFECTS, avail_effects, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_SCENE_MODES, avail_scene_modes, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, avail_antibanding, 1);
     fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS, focal_lengths, 1);
     fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_APERTURES, apertures, 1);
     fn_add_meta(m, ANDROID_STATISTICS_INFO_MAX_FACE_COUNT, max_face_count, 1);
@@ -196,7 +215,7 @@ static camera_metadata_t *build_static_info(void)
 
     /* Video stabilization */
     uint8_t vstab_modes[] = {0}; /* OFF */
-    fn_add_meta(m, ANDROID_CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES, vstab_modes, 1);
+    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_VIDEO_STAB_MODES, vstab_modes, 1);
 
     /* Max digital zoom */
     float max_zoom = 1.0f;
