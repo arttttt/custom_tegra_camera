@@ -95,13 +95,17 @@ struct camera_context {
     int32_t                         msg_type;
 };
 
-/* Sensor table: only OV5693 front for now (IMX179 rear has HW issue) */
+/*
+ * Sensor table: only OV5693 front for now (IMX179 rear has HW issue).
+ * GUID = 0 means "use sensor index" — stock HAL populates GUIDs dynamically
+ * via NvMMCameraDeviceDetect(). We try index-based open first.
+ */
 static const struct {
     NvU64 guid;
     int   facing;
     int   orientation;
 } g_sensors[] = {
-    { SENSOR_BAYER_OV5693_FRONT_GUID, CAMERA_FACING_FRONT, 270 },
+    { 0, CAMERA_FACING_FRONT, 270 },
 };
 
 #define NUM_CAMERAS (sizeof(g_sensors) / sizeof(g_sensors[0]))
