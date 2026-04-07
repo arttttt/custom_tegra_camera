@@ -31,6 +31,8 @@
 /* -------------------------------------------------------------------------- */
 
 static void *g_nvmm_lib = NULL;
+static void *g_nvgr_lib = NULL;
+static pfn_nvgr_get_surfaces fn_nvgr_get_surfaces;
 
 static pfn_NvCameraCore_Open                    fn_Open;
 static pfn_NvCameraCore_Close                   fn_Close;
@@ -73,9 +75,20 @@ static int load_nvcamera_core(void)
 
     fn_DeviceDetect = (pfn_NvMMCameraDeviceDetect)dlsym(g_nvmm_lib,
                                                          "NvMMCameraDeviceDetect");
-    /* DeviceDetect is optional — sensor count can be hardcoded */
 
-    ALOGI("NvCameraCore API loaded successfully");
+    /* Load nvgr for buffer conversion */
+    g_nvgr_lib = dlopen("libnvgr.so", RTLD_NOW);
+    if (g_nvgr_lib) {
+        fn_nvgr_get_surfaces = (pfn_nvgr_get_surfaces)dlsym(g_nvgr_lib,
+                                                             "nvgr_get_surfaces");
+        if (!fn_nvgr_get_surfaces)
+            ALOGW("nvgr_get_surfaces not found — buffer conversion unavailable");
+    } else {
+        ALOGW("libnvgr.so not found: %s", dlerror());
+    }
+
+    ALOGI("NvCameraCore API loaded successfully (nvgr=%s)",
+          fn_nvgr_get_surfaces ? "yes" : "no");
     return 0;
 }
 
@@ -140,11 +153,7 @@ static NvError nvcamera_event_callback(void *pContext, NvU32 EventType,
             (NvCameraCoreFrameCaptureResult *)pEventInfo;
         ALOGV("Event: CompletedBuffer (frame %u, %u buffers)",
               result->FrameNumber, result->NumCompletedOutputBuffers);
-        /*
-         * TODO: Post completed buffer to preview window.
-         * This is where we convert NvMMBuffer → ANativeWindowBuffer
-         * and queue it to the preview surface.
-         */
+        g_frame_done = 1;
         break;
     }
 
@@ -209,7 +218,44 @@ static int hal_msg_type_enabled(struct camera_device *dev, int32_t msg_type)
     return (ctx->msg_type & msg_type) != 0;
 }
 
-/* Preview thread: dequeue buffer → fill → enqueue in a loop */
+/*
+ * Convert gralloc buffer_handle_t to NvMMBuffer using nvgr_get_surfaces.
+ * NVIDIA gralloc handles contain NvRmSurface data directly.
+ */
+static int gralloc_to_nvmm(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
+{
+    if (!fn_nvgr_get_surfaces || !buf || !*buf) {
+        ALOGE("gralloc_to_nvmm: nvgr not available or null buffer");
+        return -1;
+    }
+
+    const NvRmSurface *surfs = NULL;
+    size_t surf_count = 0;
+
+    fn_nvgr_get_surfaces((void *)*buf, &surfs, &surf_count);
+    if (!surfs || surf_count == 0) {
+        ALOGE("gralloc_to_nvmm: nvgr_get_surfaces returned no surfaces");
+        return -1;
+    }
+
+    memset(nvmm, 0, sizeof(*nvmm));
+    nvmm->StructSize = sizeof(NvMMBuffer);
+    nvmm->BufferID = buf_id;
+    nvmm->PayloadType = NvMMPayloadType_SurfaceArray;
+
+    NvMMSurfaceDescriptor *desc = &nvmm->Payload.Surfaces;
+    memcpy(desc->Surfaces, surfs,
+           sizeof(NvRmSurface) * (surf_count > 3 ? 3 : surf_count));
+    desc->SurfaceCount = surf_count;
+    desc->Empty = NV_TRUE;
+
+    return 0;
+}
+
+/* State shared between preview thread and NvCameraCore callback */
+static volatile int g_frame_done;
+
+/* Preview thread: dequeue → convert → NvCameraCore capture → enqueue */
 static void *preview_thread_func(void *arg)
 {
     struct camera_context *ctx = (struct camera_context *)arg;
@@ -217,13 +263,24 @@ static void *preview_thread_func(void *arg)
     int preview_w = 640;
     int preview_h = 480;
     int frame_count = 0;
+    NvMMBuffer nvmm_buf;
+    NvMMBuffer *out_bufs[1];
 
-    ALOGI("preview_thread: configuring window %dx%d NV21", preview_w, preview_h);
+    ALOGI("preview_thread: configuring window %dx%d NV21 (nvgr=%s)",
+          preview_w, preview_h, fn_nvgr_get_surfaces ? "yes" : "no");
 
     /* Configure preview window */
-    win->set_usage(win, GRALLOC_USAGE_SW_WRITE_OFTEN | GRALLOC_USAGE_HW_CAMERA_WRITE);
+    win->set_usage(win, GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_HW_TEXTURE);
     win->set_buffer_count(win, 4);
     win->set_buffers_geometry(win, preview_w, preview_h, HAL_PIXEL_FORMAT_YCrCb_420_SP);
+
+    /* Set sensor mode */
+    NvMMCameraSensorMode mode;
+    memset(&mode, 0, sizeof(mode));
+    mode.width = preview_w;
+    mode.height = preview_h;
+    NvError err = fn_SetSensorMode(ctx->core_handle, mode);
+    ALOGI("preview_thread: SetSensorMode %dx%d → %d", preview_w, preview_h, err);
 
     while (ctx->preview_running) {
         buffer_handle_t *buf = NULL;
@@ -236,20 +293,41 @@ static void *preview_thread_func(void *arg)
             continue;
         }
 
-        /*
-         * TODO: Fill buffer with NvCameraCore frame data.
-         * For now the buffer is unmodified — may show black or garbage.
-         * Next step: NvCameraCore_FrameCaptureRequest + buffer conversion.
-         */
+        /* Convert gralloc buffer → NvMMBuffer and submit capture request */
+        if (fn_nvgr_get_surfaces &&
+            gralloc_to_nvmm(buf, &nvmm_buf, frame_count) == 0) {
 
-        win->set_timestamp(win, frame_count * 33333333LL); /* ~30fps in ns */
+            out_bufs[0] = &nvmm_buf;
+
+            NvCameraCoreFrameCaptureRequest req;
+            memset(&req, 0, sizeof(req));
+            req.FrameNumber = frame_count;
+            req.NumOfOutputBuffers = 1;
+            req.ppOutputBuffers = out_bufs;
+
+            g_frame_done = 0;
+            err = fn_FrameCaptureRequest(ctx->core_handle, &req);
+            if (err == NvSuccess) {
+                /* Wait for CompletedBuffer callback (max 100ms) */
+                int wait = 0;
+                while (!g_frame_done && wait < 100) {
+                    usleep(1000);
+                    wait++;
+                }
+                if (!g_frame_done)
+                    ALOGW("preview_thread: frame %d timeout", frame_count);
+            } else {
+                if (frame_count < 5)
+                    ALOGE("preview_thread: FrameCaptureRequest failed: %d", err);
+            }
+        }
+
+        win->set_timestamp(win, frame_count * 33333333LL);
         win->enqueue_buffer(win, buf);
 
         frame_count++;
         if (frame_count % 300 == 0)
             ALOGI("preview_thread: %d frames", frame_count);
-
-        usleep(33333); /* ~30fps */
     }
 
     ALOGI("preview_thread: stopped after %d frames", frame_count);

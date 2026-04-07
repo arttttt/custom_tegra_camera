@@ -8,6 +8,7 @@
 #define NVCAMERA_CORE_API_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /* Primitive types (from nvcommon.h) */
 typedef uint8_t  NvU8;
@@ -45,12 +46,118 @@ typedef struct {
 /* Opaque handle */
 typedef struct NvCameraCoreContextRec *NvCameraCoreHandle;
 
+/* -------------------------------------------------------------------------- */
+/* NvRmSurface / NvMMBuffer — real structures for buffer passing              */
+/* -------------------------------------------------------------------------- */
+
+/* Color format (from nvcolor.h) — subset we need */
+typedef NvU32 NvColorFormat;
+
+/* Surface layout */
+typedef enum {
+    NvRmSurfaceLayout_Pitch = 1,
+    NvRmSurfaceLayout_Tiled = 2,
+    NvRmSurfaceLayout_Blocklinear = 3,
+} NvRmSurfaceLayout;
+
+/* Display scan format */
+typedef enum {
+    NvDisplayScanFormat_Progressive = 0,
+    NvDisplayScanFormat_Interlaced = 1,
+} NvDisplayScanFormat;
+
+/* Opaque memory handle */
+typedef void *NvRmMemHandle;
+typedef void *NvRmDeviceHandle;
+
+/* Memory kind (for blocklinear) */
+typedef NvU32 NvRmMemKind;
+
 /*
- * NvMMBuffer — simplified. The real structure is complex (surfaces, fences).
- * For our minimal HAL we pass opaque pointers from gralloc → NvCameraCore.
- * Full definition will be needed when we wire up actual buffer passing.
+ * NvRmSurface — describes a single surface plane (from nvrm_surface.h).
+ * Must match binary layout of stock blob (44 bytes on ARM32).
  */
-typedef struct NvMMBufferRec NvMMBuffer;
+typedef struct NvRmSurfaceRec {
+    NvU32               Width;
+    NvU32               Height;
+    NvColorFormat       ColorFormat;
+    NvRmSurfaceLayout   Layout;
+    NvU32               Pitch;
+    NvRmMemHandle       hMem;
+    NvU32               Offset;
+    void               *pBase;
+    NvRmMemKind         Kind;
+    NvU32               BlockHeightLog2;
+    NvDisplayScanFormat DisplayScanFormat;
+    NvU32               SecondFieldOffset;
+} NvRmSurface;
+
+#define NVMMSURFACEDESCRIPTOR_MAX_SURFACES 3
+
+/* Fences (opaque) */
+typedef struct NvMMSurfaceFencesRec NvMMSurfaceFences;
+
+/* Display resolution */
+typedef struct {
+    NvU16 Width;
+    NvU16 Height;
+} NvMMDisplayResolution;
+
+/* Surface descriptor — array of surfaces + metadata */
+typedef struct {
+    NvRmSurface         Surfaces[NVMMSURFACEDESCRIPTOR_MAX_SURFACES];
+    NvRect              CropRect;
+    NvMMDisplayResolution DispRes;
+    NvU32               PhysicalAddress[NVMMSURFACEDESCRIPTOR_MAX_SURFACES];
+    NvS32               SurfaceCount;
+    NvU16               ViewId;
+    NvBool              Empty;
+    NvMMSurfaceFences  *fences;
+} NvMMSurfaceDescriptor;
+
+/* Payload type */
+typedef enum {
+    NvMMPayloadType_None = 0,
+    NvMMPayloadType_SurfaceArray,
+    NvMMPayloadType_MemHandle,
+    NvMMPayloadType_MemPointer,
+} NvMMPayloadType;
+
+/* Payload metadata (opaque, 16 bytes) */
+typedef struct {
+    NvU32 data[4];
+} NvMMPayloadMetadata;
+
+/* Memory reference (for non-surface payloads) */
+typedef struct {
+    NvU32 data[16]; /* opaque */
+} NvMMMemReference;
+
+/*
+ * NvMMBuffer — the buffer structure passed to NvCameraCore.
+ * Must match binary layout of stock blob.
+ */
+typedef struct NvMMBufferRec {
+    NvU32               StructSize;
+    NvU32               BufferID;
+    void               *pClientContext;
+    NvMMPayloadType     PayloadType;
+    NvMMPayloadMetadata PayloadInfo;
+    union {
+        NvMMSurfaceDescriptor Surfaces;
+        NvMMMemReference      Ref;
+    } Payload;
+    void               *pCore;
+} NvMMBuffer;
+
+/* -------------------------------------------------------------------------- */
+/* nvgr — NVIDIA gralloc surface extraction (from libnvgr.so via dlsym)       */
+/* -------------------------------------------------------------------------- */
+
+typedef void (*pfn_nvgr_get_surfaces)(
+    void *handle,               /* buffer_handle_t */
+    const NvRmSurface **surfs,
+    size_t *surfCount);
 
 /*
  * Camera core events (from nvcamera_core.h)
