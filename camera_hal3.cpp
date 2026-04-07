@@ -291,6 +291,7 @@ static int link_buffer(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
 static int hal3_initialize(const camera3_device_t *dev,
                            const camera3_callback_ops_t *callback_ops)
 {
+    if (!dev || !dev->priv) return -EINVAL;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
     ctx->callback_ops = callback_ops;
     FLOG("initialize: callback_ops=%p\n", callback_ops);
@@ -300,9 +301,11 @@ static int hal3_initialize(const camera3_device_t *dev,
 static int hal3_configure_streams(const camera3_device_t *dev,
                                   camera3_stream_configuration_t *config)
 {
+    if (!dev || !dev->priv) return -EINVAL;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
 
-    if (!config || config->num_streams == 0) return -EINVAL;
+    if (!config || config->num_streams == 0 || !config->streams) return -EINVAL;
+    if (!config->streams[0]) return -EINVAL;
 
     /* Use first output stream */
     camera3_stream_t *s = config->streams[0];
@@ -331,9 +334,10 @@ static int hal3_configure_streams(const camera3_device_t *dev,
 static int hal3_register_stream_buffers(const camera3_device_t *dev,
                                         const camera3_stream_buffer_set_t *buf_set)
 {
+    if (!dev || !dev->priv) return -EINVAL;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
 
-    if (!buf_set || buf_set->num_buffers == 0) return -EINVAL;
+    if (!buf_set || buf_set->num_buffers == 0 || !buf_set->buffers) return -EINVAL;
 
     FLOG("register_stream_buffers: %d buffers for stream %p\n",
          buf_set->num_buffers, buf_set->stream);
@@ -362,9 +366,11 @@ static const camera_metadata_t *hal3_construct_default_request_settings(
 static int hal3_process_capture_request(const camera3_device_t *dev,
                                         camera3_capture_request_t *request)
 {
+    if (!dev || !dev->priv) return -EINVAL;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
 
-    if (!request || request->num_output_buffers == 0) return -EINVAL;
+    if (!request || request->num_output_buffers == 0 || !request->output_buffers) return -EINVAL;
+    if (!ctx->callback_ops || !ctx->callback_ops->process_capture_result) return -EINVAL;
 
     uint32_t frame_num = request->frame_number;
     const camera3_stream_buffer_t *out_const = &request->output_buffers[0];
@@ -450,8 +456,9 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
 
 static int hal3_flush(const camera3_device_t *dev)
 {
+    if (!dev || !dev->priv) return -EINVAL;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
-    if (ctx->core_handle) fn_Flush(ctx->core_handle);
+    if (ctx->core_handle && fn_Flush) fn_Flush(ctx->core_handle);
     return 0;
 }
 
@@ -538,15 +545,19 @@ static int hal3_get_camera_info(int camera_id, struct camera_info *info)
 
 static int hal3_device_close(hw_device_t *device)
 {
+    if (!device) return -EINVAL;
     camera3_device_t *dev = (camera3_device_t *)device;
     struct camera_context *ctx = (struct camera_context *)dev->priv;
 
     FLOG("device_close\n");
-    if (ctx->core_handle) {
-        fn_Flush(ctx->core_handle);
-        fn_Close(ctx->core_handle);
+    if (ctx) {
+        if (ctx->core_handle) {
+            if (fn_Flush) fn_Flush(ctx->core_handle);
+            if (fn_Close) fn_Close(ctx->core_handle);
+        }
+        free(ctx);
     }
-    free(ctx);
+    dev->priv = NULL;
     free(dev);
     return 0;
 }
@@ -590,6 +601,18 @@ static int hal3_device_open(const hw_module_t *module, const char *id,
     return 0;
 }
 
+static int hal3_set_callbacks(const camera_module_callbacks_t *callbacks)
+{
+    (void)callbacks;
+    FLOG("set_callbacks: %p\n", callbacks);
+    return 0;
+}
+
+static void hal3_get_vendor_tag_ops(vendor_tag_ops_t *ops)
+{
+    (void)ops;
+}
+
 static hw_module_methods_t g_module_methods = {
     .open = hal3_device_open,
 };
@@ -609,5 +632,7 @@ camera_module_t HAL_MODULE_INFO_SYM = {
     },
     .get_number_of_cameras = hal3_get_number_of_cameras,
     .get_camera_info       = hal3_get_camera_info,
+    .set_callbacks         = hal3_set_callbacks,
+    .get_vendor_tag_ops    = hal3_get_vendor_tag_ops,
 };
 }
