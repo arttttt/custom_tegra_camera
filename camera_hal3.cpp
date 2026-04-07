@@ -233,8 +233,11 @@ static camera_metadata_t *build_static_info(void)
     float min_focus_dist = 0.0f; /* fixed focus */
     fn_add_meta(m, ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE, &min_focus_dist, 1);
 
+    /* Hardware level + request keys (AOSP IDs, no NVIDIA offset) */
+    fn_add_meta(m, ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL, &hw_level, 1);
+
     (void)avail_stream_configs; (void)min_frame_durations;
-    (void)stall_durations; (void)hw_level; (void)avail_caps;
+    (void)stall_durations; (void)avail_caps;
     (void)request_keys; (void)result_keys; (void)chars_keys;
 
     return m;
