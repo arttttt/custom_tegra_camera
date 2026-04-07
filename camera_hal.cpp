@@ -349,7 +349,7 @@ static void *preview_thread_func(void *arg)
         win->enqueue_buffer(win, buf);
 
         frame_count++;
-        if (frame_count % 300 == 0)
+        if (frame_count % 10000 == 0)
             ALOGI("preview_thread: %d frames", frame_count);
     }
 
