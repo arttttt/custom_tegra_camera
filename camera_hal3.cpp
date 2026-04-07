@@ -175,6 +175,17 @@ static camera_metadata_t *build_static_info(void)
     fn_add_meta(m, ANDROID_SENSOR_INFO_EXPOSURE_TIME_RANGE, exposure_range, 2);
     fn_add_meta(m, ANDROID_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
 
+    /* Scaler: processed sizes, JPEG sizes, min durations */
+    int32_t processed_sizes[] = {2592, 1944, 1920, 1080, 1280, 720, 640, 480};
+    int32_t jpeg_sizes[] = {2592, 1944, 1920, 1080};
+    int64_t processed_min_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
+    int64_t jpeg_min_dur[] = {33333333LL, 33333333LL};
+
+    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_PROCESSED_SIZES, processed_sizes, 8);
+    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_JPEG_SIZES, jpeg_sizes, 4);
+    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_PROCESSED_MIN_DURATIONS, processed_min_dur, 4);
+    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_JPEG_MIN_DURATIONS, jpeg_min_dur, 2);
+
     (void)avail_stream_configs; (void)min_frame_durations;
     (void)stall_durations; (void)hw_level; (void)avail_caps;
     (void)request_keys; (void)result_keys; (void)chars_keys;
