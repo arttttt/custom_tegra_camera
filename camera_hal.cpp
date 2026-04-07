@@ -464,37 +464,21 @@ static char *hal_get_parameters(struct camera_device *dev)
      * TODO: query NvCameraCore_GetStaticProperties for real values.
      */
     const char *params;
-    if (ctx->camera_id == 0) {
-        /* IMX179 rear: 8MP 3280x2464, preview 1920x1080 */
-        params =
-            "preview-size=1920x1080"
-            ";preview-size-values=1920x1080,1280x720,640x480"
-            ";picture-size=3280x2464"
-            ";picture-size-values=3280x2464,1920x1080"
-            ";preview-format=yuv420sp"
-            ";preview-format-values=yuv420sp,yuv420p"
-            ";preview-fps-range=15000,30000"
-            ";preview-frame-rate=30"
-            ";picture-format=jpeg"
-            ";focus-mode=auto"
-            ";focus-mode-values=auto,infinity"
-            ";jpeg-quality=85";
-    } else {
-        /* OV5693 front: 5MP 2592x1944, preview 1920x1080 */
-        params =
-            "preview-size=1920x1080"
-            ";preview-size-values=1920x1080,1280x720,640x480"
-            ";picture-size=2592x1944"
-            ";picture-size-values=2592x1944,1920x1080"
-            ";preview-format=yuv420sp"
-            ";preview-format-values=yuv420sp,yuv420p"
-            ";preview-fps-range=15000,30000"
-            ";preview-frame-rate=30"
-            ";picture-format=jpeg"
-            ";focus-mode=fixed"
-            ";focus-mode-values=fixed"
-            ";jpeg-quality=85";
-    }
+    /* Camera 0 = OV5693 front: 5MP 2592x1944, preview 1920x1080 */
+    (void)ctx;
+    params =
+        "preview-size=1920x1080"
+        ";preview-size-values=1920x1080,1280x720,640x480"
+        ";picture-size=2592x1944"
+        ";picture-size-values=2592x1944,1920x1080"
+        ";preview-format=yuv420sp"
+        ";preview-format-values=yuv420sp,yuv420p"
+        ";preview-fps-range=15000,30000"
+        ";preview-frame-rate=30"
+        ";picture-format=jpeg"
+        ";focus-mode=fixed"
+        ";focus-mode-values=fixed"
+        ";jpeg-quality=85";
 
     /* Camera service calls put_parameters() to free this */
     char *ret = strdup(params);
@@ -564,8 +548,22 @@ static camera_device_ops_t g_camera_ops = {
 /* camera_module_t implementation                                             */
 /* -------------------------------------------------------------------------- */
 
+static int g_device_detect_done = 0;
+
 static int hal_get_number_of_cameras(void)
 {
+    /* Run device detection once — initializes PCL, powers on sensors,
+     * writes layout to kernel. Required before NvCameraCore_Open. */
+    if (!g_device_detect_done) {
+        int ret = load_nvcamera_core();
+        if (ret == 0 && fn_DeviceDetect) {
+            ALOGI("Running NvMMCameraDeviceDetect...");
+            NvBool detected = fn_DeviceDetect();
+            ALOGI("NvMMCameraDeviceDetect: %s", detected ? "OK" : "FAILED");
+        }
+        g_device_detect_done = 1;
+    }
+
     ALOGI("get_number_of_cameras: %d", (int)NUM_CAMERAS);
     return NUM_CAMERAS;
 }
