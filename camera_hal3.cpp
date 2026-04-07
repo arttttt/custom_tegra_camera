@@ -400,28 +400,45 @@ static int hal3_configure_streams(const camera3_device_t *dev,
     struct camera_context *ctx = (struct camera_context *)dev->priv;
 
     if (!config || config->num_streams == 0 || !config->streams) return -EINVAL;
-    if (!config->streams[0]) return -EINVAL;
 
-    /* Use first output stream */
-    camera3_stream_t *s = config->streams[0];
-    FLOG("configure_streams: %dx%d fmt=0x%x usage=0x%x\n",
-         s->width, s->height, s->format, s->usage);
+    FLOG("configure_streams: num_streams=%d\n", config->num_streams);
 
-    s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
-    s->max_buffers = 4;
+    /* Configure ALL streams — set usage and max_buffers for each */
+    camera3_stream_t *preview_stream = NULL;
+    for (uint32_t i = 0; i < config->num_streams; i++) {
+        camera3_stream_t *s = config->streams[i];
+        if (!s) continue;
 
-    ctx->stream.stream = s;
-    ctx->stream.num_bufs = 0;
-    ctx->stream_configured = 1;
+        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
+        s->max_buffers = 4;
 
-    /* Set sensor mode to match stream */
-    NvMMCameraSensorMode mode;
-    memset(&mode, 0, sizeof(mode));
-    mode.Resolution.width = s->width;
-    mode.Resolution.height = s->height;
-    mode.FrameRate = 30.0f;
-    NvError err = fn_SetSensorMode(ctx->core_handle, mode);
-    FLOG("SetSensorMode %dx%d -> %d\n", s->width, s->height, err);
+        FLOG("  stream[%d]: %dx%d fmt=0x%x type=%d\n",
+             i, s->width, s->height, s->format, s->stream_type);
+
+        /* Pick largest output stream for sensor mode */
+        if (s->stream_type == CAMERA3_STREAM_OUTPUT ||
+            s->stream_type == CAMERA3_STREAM_BIDIRECTIONAL) {
+            if (!preview_stream ||
+                (s->width * s->height > preview_stream->width * preview_stream->height))
+                preview_stream = s;
+        }
+    }
+
+    if (preview_stream) {
+        ctx->stream.stream = preview_stream;
+        ctx->stream.num_bufs = 0;
+        ctx->stream_configured = 1;
+
+        /* Set sensor mode to match largest stream */
+        NvMMCameraSensorMode mode;
+        memset(&mode, 0, sizeof(mode));
+        mode.Resolution.width = preview_stream->width;
+        mode.Resolution.height = preview_stream->height;
+        mode.FrameRate = 30.0f;
+        NvError err = fn_SetSensorMode(ctx->core_handle, mode);
+        FLOG("SetSensorMode %dx%d -> %d\n",
+             preview_stream->width, preview_stream->height, err);
+    }
 
     return 0;
 }
