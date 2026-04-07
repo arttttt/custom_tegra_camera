@@ -16,8 +16,15 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "nvcamera_core_api.h"
+
+/* Pixel formats & gralloc usage (from system/graphics.h, hardware/gralloc.h) */
+#define HAL_PIXEL_FORMAT_YCrCb_420_SP   0x11  /* NV21 */
+#define GRALLOC_USAGE_SW_WRITE_OFTEN    0x00000200
+#define GRALLOC_USAGE_HW_TEXTURE        0x00000100
+#define GRALLOC_USAGE_HW_CAMERA_WRITE   0x00020000
 
 /* -------------------------------------------------------------------------- */
 /* NvCameraCore API — loaded at runtime via dlopen                            */
@@ -202,6 +209,53 @@ static int hal_msg_type_enabled(struct camera_device *dev, int32_t msg_type)
     return (ctx->msg_type & msg_type) != 0;
 }
 
+/* Preview thread: dequeue buffer → fill → enqueue in a loop */
+static void *preview_thread_func(void *arg)
+{
+    struct camera_context *ctx = (struct camera_context *)arg;
+    preview_stream_ops_t *win = ctx->preview_window;
+    int preview_w = 640;
+    int preview_h = 480;
+    int frame_count = 0;
+
+    ALOGI("preview_thread: configuring window %dx%d NV21", preview_w, preview_h);
+
+    /* Configure preview window */
+    win->set_usage(win, GRALLOC_USAGE_SW_WRITE_OFTEN | GRALLOC_USAGE_HW_CAMERA_WRITE);
+    win->set_buffer_count(win, 4);
+    win->set_buffers_geometry(win, preview_w, preview_h, HAL_PIXEL_FORMAT_YCrCb_420_SP);
+
+    while (ctx->preview_running) {
+        buffer_handle_t *buf = NULL;
+        int stride = 0;
+
+        int ret = win->dequeue_buffer(win, &buf, &stride);
+        if (ret != 0 || !buf) {
+            ALOGE("preview_thread: dequeue_buffer failed: %d", ret);
+            usleep(10000);
+            continue;
+        }
+
+        /*
+         * TODO: Fill buffer with NvCameraCore frame data.
+         * For now the buffer is unmodified — may show black or garbage.
+         * Next step: NvCameraCore_FrameCaptureRequest + buffer conversion.
+         */
+
+        win->set_timestamp(win, frame_count * 33333333LL); /* ~30fps in ns */
+        win->enqueue_buffer(win, buf);
+
+        frame_count++;
+        if (frame_count % 300 == 0)
+            ALOGI("preview_thread: %d frames", frame_count);
+
+        usleep(33333); /* ~30fps */
+    }
+
+    ALOGI("preview_thread: stopped after %d frames", frame_count);
+    return NULL;
+}
+
 static int hal_start_preview(struct camera_device *dev)
 {
     struct camera_context *ctx = (struct camera_context *)dev;
@@ -217,17 +271,21 @@ static int hal_start_preview(struct camera_device *dev)
         return -EINVAL;
     }
 
-    /*
-     * TODO: Implement preview loop:
-     * 1. NvCameraCore_SetSensorMode() — pick resolution
-     * 2. Dequeue buffers from preview_window
-     * 3. Convert ANativeWindowBuffer → NvMMBuffer
-     * 4. NvCameraCore_FrameCaptureRequest() in a loop
-     * 5. On CompletedBuffer callback → queue buffer back to window
-     */
+    if (ctx->preview_running) {
+        ALOGW("start_preview: already running");
+        return 0;
+    }
 
     ctx->preview_running = 1;
-    ALOGI("start_preview: TODO — preview loop not yet implemented");
+
+    int ret = pthread_create(&ctx->preview_thread, NULL, preview_thread_func, ctx);
+    if (ret != 0) {
+        ALOGE("start_preview: pthread_create failed: %d", ret);
+        ctx->preview_running = 0;
+        return -ret;
+    }
+
+    ALOGI("start_preview: preview thread started");
     return 0;
 }
 
@@ -236,7 +294,10 @@ static void hal_stop_preview(struct camera_device *dev)
     struct camera_context *ctx = (struct camera_context *)dev;
     ALOGI("stop_preview (camera %d)", ctx->camera_id);
 
-    ctx->preview_running = 0;
+    if (ctx->preview_running) {
+        ctx->preview_running = 0;
+        pthread_join(ctx->preview_thread, NULL);
+    }
 
     if (ctx->core_handle)
         fn_Flush(ctx->core_handle);
