@@ -227,6 +227,24 @@ static camera_metadata_t *build_static_info(void)
     (void)stall_durations; (void)avail_caps;
     (void)request_keys; (void)result_keys; (void)chars_keys;
 
+    /*
+     * MIUI CameraService stubs.
+     *
+     * Xiaomi's libcameraservice.so has custom code paths (e.g. setTimestampMultFactor)
+     * that call CameraMetadata::find() on tags not present in AOSP. If the tag is
+     * missing, find() returns NULL and the service crashes (SEGV).
+     *
+     * These stubs provide safe defaults. They are NOT part of the core HAL and
+     * should be removed or ifdef'd out when targeting AOSP/LineageOS CameraService.
+     */
+#ifdef MIUI_CAMERA_SERVICE
+    int64_t max_frame_dur = 300000000LL; /* 300ms = ~3fps min */
+    fn_add_meta(m, MIUI_SENSOR_INFO_MAX_FRAME_DUR, &max_frame_dur, 1);
+
+    int32_t white_level = 4095; /* 12-bit */
+    fn_add_meta(m, MIUI_SENSOR_INFO_WHITE_LEVEL, &white_level, 1);
+#endif
+
     return m;
 }
 

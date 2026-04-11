@@ -23,7 +23,7 @@ LOCAL_C_INCLUDES := \
     frameworks/native/include \
     frameworks/av/include
 
-LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
+LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter -DMIUI_CAMERA_SERVICE
 LOCAL_LDFLAGS := -Wl,--hash-style=sysv
 LOCAL_NDK_STL_VARIANT := none
 LOCAL_SDK_VERSION := 19
