@@ -26,6 +26,9 @@ struct vendor_ops {
                                 uint32_t frame_number);
 };
 
+#ifdef __cplusplus
+extern "C"
+#endif
 const struct vendor_ops *vendor_ops_get(void);
 
 #endif /* VENDOR_OPS_H */
