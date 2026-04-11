@@ -441,10 +441,9 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* JXD stock HAL maps IMPLEMENTATION_DEFINED → YV12 (3-plane YCrCb 4:2:0).
-         * NvCameraCore ISP output expects YV12 format buffers. */
+        /* Test: NV21 to isolate crash — is it format-specific or any output? */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
-            s->format = HAL_PIXEL_FORMAT_YV12;
+            s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
         s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
         s->max_buffers = 4;
 
