@@ -178,22 +178,23 @@ static camera_metadata_t *build_static_info(int camera_id)
     /* --- android.scaler --- */
     int32_t formats[] = {0x20, 0x22, 0x11, 0x100, 0x23}; /* 5 formats like stock */
     float max_zoom = 1.0f;
-    /* OV5693: 21 processed sizes (42 ints), 9 jpeg sizes (18 ints) */
+    /* OV5693 processed sizes (exclude 2048x1536 — gralloc can't allocate it) */
     int32_t proc_sizes[] = {
-        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
+        2592, 1944, 1920, 1080, 1600, 1200,
         1280, 960,  1280, 720,  1024, 768,  960,  720,
         800,  600,  720,  480,  640,  480,  352,  288,
         320,  240,  176,  144,  160,  120,  2592, 1944,
-        2048, 1536, 1920, 1080, 1600, 1200, 1280, 960,
-        1280, 720,
+        1920, 1080, 1600, 1200, 1280, 960,  1280, 720,
     };
-    int64_t proc_dur[21]; for (int i = 0; i < 21; i++) proc_dur[i] = 33333333LL;
+    int32_t n_proc = sizeof(proc_sizes) / sizeof(proc_sizes[0]);
+    int64_t proc_dur[19]; for (int i = 0; i < 19; i++) proc_dur[i] = 33333333LL;
     int32_t jpeg_sizes[] = {
-        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
+        2592, 1944, 1920, 1080, 1600, 1200,
         1280, 960,  1280, 720,  1024, 768,  640,  480,
         320,  240,
     };
-    int64_t jpeg_dur[9]; for (int i = 0; i < 9; i++) jpeg_dur[i] = 33333333LL;
+    int32_t n_jpeg = sizeof(jpeg_sizes) / sizeof(jpeg_sizes[0]);
+    int64_t jpeg_dur[8]; for (int i = 0; i < 8; i++) jpeg_dur[i] = 33333333LL;
     int32_t raw_sizes[] = {2592, 1944, 2592, 1944, 2592, 1944, 2592, 1944};
     int64_t raw_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
 
@@ -201,10 +202,10 @@ static camera_metadata_t *build_static_info(int camera_id)
     fn_add_meta(m, MIUI_SCALER_AVAIL_MAX_DIGITAL_ZOOM, &max_zoom, 1);
     fn_add_meta(m, MIUI_SCALER_AVAIL_RAW_SIZES, raw_sizes, 8);
     fn_add_meta(m, MIUI_SCALER_AVAIL_RAW_MIN_DUR, raw_dur, 4);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_SIZES, proc_sizes, 42);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_MIN_DUR, proc_dur, 21);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_SIZES, jpeg_sizes, 18);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_MIN_DUR, jpeg_dur, 9);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_SIZES, proc_sizes, n_proc);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_MIN_DUR, proc_dur, n_proc / 2);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_SIZES, jpeg_sizes, n_jpeg);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_MIN_DUR, jpeg_dur, n_jpeg / 2);
 
     /* --- android.sensor + sensor.info --- */
     int32_t active_array[] = {0, 0, 2592, 1944};
