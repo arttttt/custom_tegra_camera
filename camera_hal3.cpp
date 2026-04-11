@@ -251,6 +251,9 @@ static camera_metadata_t *build_default_request(void)
     fn_add_meta(m, MIUI_CONTROL_AE_MODE, &ae_mode, 1);
     fn_add_meta(m, MIUI_CONTROL_AWB_MODE, &awb_mode, 1);
 
+    /* Vendor-specific request stubs */
+    vendor_ops_get()->add_request_metadata(m, fn_add_meta);
+
     return m;
 }
 

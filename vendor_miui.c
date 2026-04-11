@@ -21,15 +21,22 @@ static void miui_add_static(camera_metadata_t *m, meta_add_fn add)
     add(m, MIUI_SENSOR_INFO_WHITE_LEVEL, &white_level, 1);
 }
 
+static void miui_add_request(camera_metadata_t *m, meta_add_fn add)
+{
+    /* setTimestampMultFactor reads maxFrameDuration from request settings */
+    int64_t max_frame_dur = 300000000LL;
+    add(m, MIUI_SENSOR_INFO_MAX_FRAME_DUR, &max_frame_dur, 1);
+}
+
 static void miui_add_result(camera_metadata_t *m, meta_add_fn add,
                             uint32_t frame_number)
 {
     (void)m; (void)add; (void)frame_number;
-    /* No per-frame MIUI stubs needed yet */
 }
 
 static const struct vendor_ops miui_ops = {
     .add_static_metadata  = miui_add_static,
+    .add_request_metadata = miui_add_request,
     .add_result_metadata  = miui_add_result,
 };
 

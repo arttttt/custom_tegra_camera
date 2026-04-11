@@ -10,6 +10,11 @@ static void noop_add_static(camera_metadata_t *m, meta_add_fn add)
     (void)m; (void)add;
 }
 
+static void noop_add_request(camera_metadata_t *m, meta_add_fn add)
+{
+    (void)m; (void)add;
+}
+
 static void noop_add_result(camera_metadata_t *m, meta_add_fn add,
                             uint32_t frame_number)
 {
@@ -18,6 +23,7 @@ static void noop_add_result(camera_metadata_t *m, meta_add_fn add,
 
 static const struct vendor_ops noop_ops = {
     .add_static_metadata  = noop_add_static,
+    .add_request_metadata = noop_add_request,
     .add_result_metadata  = noop_add_result,
 };
 

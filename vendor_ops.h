@@ -21,6 +21,9 @@ struct vendor_ops {
     /* Append vendor-specific entries to static camera characteristics */
     void (*add_static_metadata)(camera_metadata_t *m, meta_add_fn add);
 
+    /* Append vendor-specific entries to default request settings */
+    void (*add_request_metadata)(camera_metadata_t *m, meta_add_fn add);
+
     /* Append vendor-specific entries to per-frame result metadata */
     void (*add_result_metadata)(camera_metadata_t *m, meta_add_fn add,
                                 uint32_t frame_number);
