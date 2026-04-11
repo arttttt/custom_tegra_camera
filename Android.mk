@@ -18,8 +18,10 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_C_INCLUDES := \
     system/core/include \
+    system/media/camera/include \
     hardware/libhardware/include \
-    frameworks/native/include
+    frameworks/native/include \
+    frameworks/av/include
 
 LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
 
