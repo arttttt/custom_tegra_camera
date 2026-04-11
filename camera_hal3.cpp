@@ -391,12 +391,11 @@ static int link_buffer(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
     fn_nvgr_get_surfaces((void *)*buf, &surfs, &surf_count);
     if (!surfs || surf_count == 0) return -1;
 
-    memset(nvmm, 0, sizeof(*nvmm));
-    nvmm->StructSize = sizeof(NvMMBuffer);
+    /* Match JXD stock: only set BufferID, then init Surfaces via nvgr */
     nvmm->BufferID = buf_id;
-    nvmm->PayloadType = NvMMPayloadType_SurfaceArray;
 
     NvMMSurfaceDescriptor *desc = &nvmm->Payload.Surfaces;
+    memset(desc, 0, sizeof(*desc));
     memcpy(desc->Surfaces, surfs,
            sizeof(NvRmSurface) * (surf_count > 3 ? 3 : surf_count));
     desc->SurfaceCount = surf_count;
@@ -440,9 +439,9 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         if (!s) continue;
 
         /* NVIDIA gralloc can't allocate IMPLEMENTATION_DEFINED with camera usage.
-         * Override to YV12 (0x32b) which is NVIDIA's preferred planar YUV. */
+         * NV21 (YCrCb_420_SP) is the only format gralloc supports at 2048x1536. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
-            s->format = 0x32b; /* HAL_PIXEL_FORMAT_YV12 */
+            s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
         s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
         s->max_buffers = 4;
 
