@@ -351,6 +351,8 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
     struct camera_context *ctx = (struct camera_context *)ctx_ptr;
     (void)info_size;
 
+    FLOG("callback: event=%u info_size=%u\n", event_type, info_size);
+
     if (event_type == NvCameraCoreEvent_CompletedBuffer) {
         NvCameraCoreFrameCaptureResult *result = (NvCameraCoreFrameCaptureResult *)info;
         FLOG("CompletedBuffer: frame %u, %u bufs\n",
