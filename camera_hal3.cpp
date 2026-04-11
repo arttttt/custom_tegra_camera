@@ -53,12 +53,14 @@ static pfn_NvCameraCore_GetDefaultControlProperties fn_GetDefaultCtrl;
 static pfn_NvMMCameraDeviceDetect               fn_DeviceDetect;
 static pfn_nvgr_get_surfaces                    fn_nvgr_get_surfaces;
 
-/* camera_metadata function pointers */
+/* camera_metadata — use dlsym at runtime (not linked directly due to SDK_VERSION=19) */
 typedef camera_metadata_t *(*pfn_allocate_camera_metadata)(size_t, size_t);
 typedef int (*pfn_add_camera_metadata_entry)(camera_metadata_t*, uint32_t, const void*, size_t);
+typedef void (*pfn_sort_camera_metadata)(camera_metadata_t*);
 
 static pfn_allocate_camera_metadata fn_alloc_meta;
 static pfn_add_camera_metadata_entry fn_add_meta;
+static pfn_sort_camera_metadata fn_sort_meta;
 
 static int load_libs(void)
 {
@@ -87,6 +89,7 @@ static int load_libs(void)
     if (meta_lib) {
         LSYM(fn_alloc_meta, meta_lib, "allocate_camera_metadata");
         LSYM(fn_add_meta, meta_lib, "add_camera_metadata_entry");
+        LSYM(fn_sort_meta, meta_lib, "sort_camera_metadata");
     }
 
 #undef LSYM
@@ -257,6 +260,9 @@ static camera_metadata_t *build_static_info(int camera_id)
     /* Vendor-specific stubs (MIUI CameraService extras) */
     vendor_ops_get()->add_static_metadata(m, fn_add_meta);
 
+    /* Sort for CameraMetadata::find() binary search */
+    if (fn_sort_meta) fn_sort_meta(m);
+
     return m;
 }
 
@@ -280,6 +286,7 @@ static camera_metadata_t *build_default_request(void)
     /* Vendor-specific request stubs */
     vendor_ops_get()->add_request_metadata(m, fn_add_meta);
 
+    if (fn_sort_meta) fn_sort_meta(m);
     return m;
 }
 
