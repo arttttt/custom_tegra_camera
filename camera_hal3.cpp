@@ -64,10 +64,12 @@ typedef void (*pfn_NvRmMemUnmap)(void *hMem, void *pVirtAddr, NvU32 size);
 typedef int (*pfn_NvRmMemCacheSyncForCpu)(void *hMem, void *pVirtAddr, NvU32 size);
 typedef void (*pfn_NvRmMemRead)(void *hMem, NvU32 offset, void *dst, NvU32 size);
 typedef NvU32 (*pfn_NvRmSurfaceComputeSize)(const NvRmSurface *surf);
-typedef void (*pfn_NvRmMultiplanarSurfaceSetup)(void *desc, NvU32 numSurfs,
-    NvU32 width, NvU32 height, NvU32 layout, void *colorFormats, void *attrs);
+typedef void (*pfn_NvRmMultiplanarSurfaceSetup)(NvRmSurface *surfaces, NvU32 numSurfs,
+    NvU32 width, NvU32 height, NvU32 yuvFormat, NvColorFormat *colorFormats, const NvU32 *attrs);
 typedef int (*pfn_NvRmMemHandleAllocAttr)(void *hRm, void *attrs, void **phMem);
 typedef NvU32 (*pfn_NvRmSurfaceComputeAlignment)(void *hRm, const NvRmSurface *surf);
+typedef NvU32 (*pfn_NvRmMemPin)(NvRmMemHandle hMem);
+typedef void (*pfn_NvRmMemUnpin)(NvRmMemHandle hMem);
 typedef void (*pfn_NvRmMemHandleFree)(void *hMem);
 
 static pfn_NvRmOpen fn_NvRmOpen;
@@ -80,6 +82,8 @@ static pfn_NvRmSurfaceComputeSize fn_NvRmSurfaceComputeSize;
 static pfn_NvRmMultiplanarSurfaceSetup fn_NvRmMultiplanarSurfaceSetup;
 static pfn_NvRmMemHandleAllocAttr fn_NvRmMemHandleAllocAttr;
 static pfn_NvRmSurfaceComputeAlignment fn_NvRmSurfaceComputeAlignment;
+static pfn_NvRmMemPin fn_NvRmMemPin;
+static pfn_NvRmMemUnpin fn_NvRmMemUnpin;
 static pfn_NvRmMemHandleFree fn_NvRmMemHandleFree;
 
 /* gralloc module for lock/unlock */
@@ -141,9 +145,12 @@ static int load_libs(void)
         fn_NvRmMultiplanarSurfaceSetup = (pfn_NvRmMultiplanarSurfaceSetup)dlsym(nvrm_lib, "NvRmMultiplanarSurfaceSetup");
         fn_NvRmMemHandleAllocAttr = (pfn_NvRmMemHandleAllocAttr)dlsym(nvrm_lib, "NvRmMemHandleAllocAttr");
         fn_NvRmSurfaceComputeAlignment = (pfn_NvRmSurfaceComputeAlignment)dlsym(nvrm_lib, "NvRmSurfaceComputeAlignment");
+        fn_NvRmMemPin = (pfn_NvRmMemPin)dlsym(nvrm_lib, "NvRmMemPin");
+        fn_NvRmMemUnpin = (pfn_NvRmMemUnpin)dlsym(nvrm_lib, "NvRmMemUnpin");
         fn_NvRmMemHandleFree = (pfn_NvRmMemHandleFree)dlsym(nvrm_lib, "NvRmMemHandleFree");
-        FLOG("NvRm loaded: Map=%d Setup=%d Alloc=%d\n",
-             !!fn_NvRmMemMap, !!fn_NvRmMultiplanarSurfaceSetup, !!fn_NvRmMemHandleAllocAttr);
+        FLOG("NvRm loaded: Map=%d Setup=%d Alloc=%d Pin=%d\n",
+             !!fn_NvRmMemMap, !!fn_NvRmMultiplanarSurfaceSetup, !!fn_NvRmMemHandleAllocAttr,
+             !!fn_NvRmMemPin);
     }
 
     /* Load gralloc module for lock/unlock */
@@ -474,43 +481,41 @@ static int alloc_nvmm_surface(NvMMBuffer *nvmm, NvU32 buf_id, NvU32 w, NvU32 h)
 
     NvMMSurfaceDescriptor *desc = &nvmm->Payload.Surfaces;
 
-    /* Set up YV12 3-plane pitchlinear (stock HAL: "allocating YV12 for Zoom Stream") */
-    NvRmSurface *s0 = &desc->Surfaces[0];
-    NvRmSurface *s1 = &desc->Surfaces[1];
-    NvRmSurface *s2 = &desc->Surfaces[2];
+    /*
+     * Use NvRmMultiplanarSurfaceSetup — same as stock HAL AllocateNvMMSurface.
+     * Sets up Pitch, Kind, BlockHeightLog2, etc. properly.
+     *
+     * Signature: (Surfaces, NumSurfaces, Width, Height, YuvFormat, ColorFormats, Attributes)
+     * YuvFormat: 0=Unspecified, 1=YUV420, 2=YUV422
+     * Attributes: NvRmSurfaceAttribute_None(0) terminated list of (attr, value) pairs
+     *   NvRmSurfaceAttribute_Layout = 1
+     */
+    NvColorFormat colorFmts[3] = {
+        0x08592004, /* NvColorFormat_Y8 */
+        0x08590404, /* NvColorFormat_U8 */
+        0x08582404, /* NvColorFormat_V8 */
+    };
+    /* Attrs: Layout=Pitch(1), then terminator */
+    NvU32 attrs[] = { 1 /* NvRmSurfaceAttribute_Layout */, NvRmSurfaceLayout_Pitch, 0 /* None/end */ };
 
-    NvU32 pitch = (w + 63) & ~63; /* 64-byte aligned pitch */
-
-    /* Y plane */
-    s0->Width = w;
-    s0->Height = h;
-    s0->ColorFormat = 0x08592004; /* NvColorFormat_Y8 */
-    s0->Layout = NvRmSurfaceLayout_Pitch;
-    s0->Pitch = pitch;
-
-    /* U plane */
-    s1->Width = w / 2;
-    s1->Height = h / 2;
-    s1->ColorFormat = 0x08590404; /* NvColorFormat_U8 (computed) */
-    s1->Layout = NvRmSurfaceLayout_Pitch;
-    s1->Pitch = pitch / 2;
-
-    /* V plane */
-    s2->Width = w / 2;
-    s2->Height = h / 2;
-    s2->ColorFormat = 0x08582404; /* NvColorFormat_V8 (computed) */
-    s2->Layout = NvRmSurfaceLayout_Pitch;
-    s2->Pitch = pitch / 2;
-
+    fn_NvRmMultiplanarSurfaceSetup(desc->Surfaces, 3, w, h,
+                                   1 /* NvYuvColorFormat_YUV420 */, colorFmts, attrs);
     desc->SurfaceCount = 3;
     desc->Empty = NV_TRUE;
 
-    /* Allocate memory for each surface via NvRm */
-    /* NvRmHeap enum: External=1, Carveout=2, IRAM=3, GART=4 */
+    FLOG("MultiplanarSetup: %ux%u YV12 3-plane\n", w, h);
+    for (int i = 0; i < 3; i++) {
+        NvRmSurface *s = &desc->Surfaces[i];
+        FLOG("  surf[%d]: %ux%u fmt=0x%08x layout=%u pitch=%u kind=%u bh=%u\n",
+             i, s->Width, s->Height, s->ColorFormat, s->Layout, s->Pitch, s->Kind, s->BlockHeightLog2);
+    }
+
+    /* Allocate memory for each surface via NvRm (like stock AllocateNvMMSurface) */
     NvU32 heaps[] = { 2 /* Carveout */ };
     for (int i = 0; i < 3; i++) {
         NvRmSurface *s = &desc->Surfaces[i];
-        NvU32 size = s->Pitch * s->Height;
+        NvU32 alignment = fn_NvRmSurfaceComputeAlignment(g_rm_handle, s);
+        NvU32 size = fn_NvRmSurfaceComputeSize(s);
         /* NvRmMemHandleAttr struct layout from nvrm_memmgr.h */
         struct {
             const NvU32 *Heaps;
@@ -525,21 +530,29 @@ static int alloc_nvmm_surface(NvMMBuffer *nvmm, NvU32 buf_id, NvU32 w, NvU32 h)
         memset(&attr, 0, sizeof(attr));
         attr.Heaps = heaps;
         attr.NumHeaps = 1;
-        attr.Alignment = 64;
+        attr.Alignment = alignment;
         attr.Coherency = 2; /* WriteBack */
         attr.Size = size;
-        attr.Kind = s->Kind;
+        attr.Kind = s->Kind; /* from NvRmMultiplanarSurfaceSetup */
         int err = fn_NvRmMemHandleAllocAttr(g_rm_handle, &attr, &s->hMem);
         if (err != 0) {
-            FLOG("NvRmMemHandleAllocAttr surf %d size=%u failed: %d\n", i, size, err);
+            FLOG("NvRmMemHandleAllocAttr surf %d size=%u align=%u failed: %d\n",
+                 i, size, alignment, err);
             return -1;
+        }
+
+        /* Pin memory to get physical address for DMA */
+        if (fn_NvRmMemPin) {
+            desc->PhysicalAddress[i] = fn_NvRmMemPin(s->hMem);
+            FLOG("  surf[%d]: hMem=%p size=%u align=%u phys=0x%08x\n",
+                 i, s->hMem, size, alignment, desc->PhysicalAddress[i]);
+        } else {
+            FLOG("  surf[%d]: hMem=%p size=%u align=%u (no pin!)\n",
+                 i, s->hMem, size, alignment);
         }
     }
 
-    FLOG("alloc_nvmm: id=%u %ux%u YV12 pitch=%u hMem=%p/%p/%p\n",
-         buf_id, w, h, pitch,
-         desc->Surfaces[0].hMem, desc->Surfaces[1].hMem, desc->Surfaces[2].hMem);
-
+    FLOG("alloc_nvmm: id=%u %ux%u YV12 done\n", buf_id, w, h);
     return 0;
 }
 
