@@ -8,6 +8,12 @@ LOCAL_MODULE_TAGS := optional
 
 LOCAL_SRC_FILES := camera_hal3.cpp
 
+ifeq ($(MIUI_CAMERA_SERVICE),true)
+  LOCAL_SRC_FILES += vendor_miui.c
+else
+  LOCAL_SRC_FILES += vendor_noop.c
+endif
+
 LOCAL_SHARED_LIBRARIES := \
     liblog \
     libcutils \
@@ -23,7 +29,10 @@ LOCAL_C_INCLUDES := \
     frameworks/native/include \
     frameworks/av/include
 
-LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter -DMIUI_CAMERA_SERVICE
+# Set MIUI_CAMERA_SERVICE=true for stock Xiaomi firmware
+MIUI_CAMERA_SERVICE ?= true
+
+LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
 LOCAL_LDFLAGS := -Wl,--hash-style=sysv
 LOCAL_NDK_STL_VARIANT := none
 LOCAL_SDK_VERSION := 19
