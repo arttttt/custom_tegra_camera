@@ -56,16 +56,31 @@ static pfn_NvCameraCore_GetDefaultControlProperties fn_GetDefaultCtrl;
 static pfn_NvMMCameraDeviceDetect               fn_DeviceDetect;
 static pfn_nvgr_get_surfaces                    fn_nvgr_get_surfaces;
 
-/* NvRm functions for direct nvmap access (loaded from libnvrm.so) */
+/* NvRm functions for buffer allocation + direct access (loaded from libnvrm.so) */
+typedef int (*pfn_NvRmOpen)(void **phRm, NvU32 devId);
+typedef void (*pfn_NvRmClose)(void *hRm);
 typedef int (*pfn_NvRmMemMap)(void *hMem, NvU32 offset, NvU32 size, NvU32 flags, void **pVirtAddr);
 typedef void (*pfn_NvRmMemUnmap)(void *hMem, void *pVirtAddr, NvU32 size);
 typedef int (*pfn_NvRmMemCacheSyncForCpu)(void *hMem, void *pVirtAddr, NvU32 size);
+typedef void (*pfn_NvRmMemRead)(void *hMem, NvU32 offset, void *dst, NvU32 size);
 typedef NvU32 (*pfn_NvRmSurfaceComputeSize)(const NvRmSurface *surf);
+typedef void (*pfn_NvRmMultiplanarSurfaceSetup)(void *desc, NvU32 numSurfs,
+    NvU32 width, NvU32 height, NvU32 layout, void *colorFormats, void *attrs);
+typedef int (*pfn_NvRmMemHandleAllocAttr)(void *hRm, void *attrs, void **phMem);
+typedef NvU32 (*pfn_NvRmSurfaceComputeAlignment)(void *hRm, const NvRmSurface *surf);
+typedef void (*pfn_NvRmMemHandleFree)(void *hMem);
 
+static pfn_NvRmOpen fn_NvRmOpen;
+static pfn_NvRmClose fn_NvRmClose;
 static pfn_NvRmMemMap fn_NvRmMemMap;
 static pfn_NvRmMemUnmap fn_NvRmMemUnmap;
 static pfn_NvRmMemCacheSyncForCpu fn_NvRmMemCacheSyncForCpu;
+static pfn_NvRmMemRead fn_NvRmMemRead;
 static pfn_NvRmSurfaceComputeSize fn_NvRmSurfaceComputeSize;
+static pfn_NvRmMultiplanarSurfaceSetup fn_NvRmMultiplanarSurfaceSetup;
+static pfn_NvRmMemHandleAllocAttr fn_NvRmMemHandleAllocAttr;
+static pfn_NvRmSurfaceComputeAlignment fn_NvRmSurfaceComputeAlignment;
+static pfn_NvRmMemHandleFree fn_NvRmMemHandleFree;
 
 /* gralloc module for lock/unlock */
 static const gralloc_module_t *g_gralloc;
@@ -113,13 +128,22 @@ static int load_libs(void)
 
     if (!fn_Open || !fn_Close || !fn_FrameCaptureRequest) return -1;
 
-    /* Load NvRm functions for direct nvmap access */
+    /* Load NvRm functions for buffer allocation + direct access */
     void *nvrm_lib = dlopen("libnvrm.so", RTLD_NOW);
     if (nvrm_lib) {
+        fn_NvRmOpen = (pfn_NvRmOpen)dlsym(nvrm_lib, "NvRmOpen");
+        fn_NvRmClose = (pfn_NvRmClose)dlsym(nvrm_lib, "NvRmClose");
         fn_NvRmMemMap = (pfn_NvRmMemMap)dlsym(nvrm_lib, "NvRmMemMap");
         fn_NvRmMemUnmap = (pfn_NvRmMemUnmap)dlsym(nvrm_lib, "NvRmMemUnmap");
         fn_NvRmMemCacheSyncForCpu = (pfn_NvRmMemCacheSyncForCpu)dlsym(nvrm_lib, "NvRmMemCacheSyncForCpu");
+        fn_NvRmMemRead = (pfn_NvRmMemRead)dlsym(nvrm_lib, "NvRmMemRead");
         fn_NvRmSurfaceComputeSize = (pfn_NvRmSurfaceComputeSize)dlsym(nvrm_lib, "NvRmSurfaceComputeSize");
+        fn_NvRmMultiplanarSurfaceSetup = (pfn_NvRmMultiplanarSurfaceSetup)dlsym(nvrm_lib, "NvRmMultiplanarSurfaceSetup");
+        fn_NvRmMemHandleAllocAttr = (pfn_NvRmMemHandleAllocAttr)dlsym(nvrm_lib, "NvRmMemHandleAllocAttr");
+        fn_NvRmSurfaceComputeAlignment = (pfn_NvRmSurfaceComputeAlignment)dlsym(nvrm_lib, "NvRmSurfaceComputeAlignment");
+        fn_NvRmMemHandleFree = (pfn_NvRmMemHandleFree)dlsym(nvrm_lib, "NvRmMemHandleFree");
+        FLOG("NvRm loaded: Map=%d Setup=%d Alloc=%d\n",
+             !!fn_NvRmMemMap, !!fn_NvRmMultiplanarSurfaceSetup, !!fn_NvRmMemHandleAllocAttr);
     }
 
     /* Load gralloc module for lock/unlock */
@@ -425,38 +449,89 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
 }
 
 /* -------------------------------------------------------------------------- */
-/* Buffer conversion: gralloc → NvMMBuffer (via nvgr_get_surfaces)             */
+/* Buffer allocation: own pitchlinear NvMMBuffer (like stock AllocateNvMMSurface) */
 /* -------------------------------------------------------------------------- */
 
-static int link_buffer(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
+static void *g_rm_handle; /* NvRm device handle */
+
+static int alloc_nvmm_surface(NvMMBuffer *nvmm, NvU32 buf_id, NvU32 w, NvU32 h)
 {
-    if (!fn_nvgr_get_surfaces || !buf || !*buf) return -1;
+    if (!fn_NvRmMultiplanarSurfaceSetup || !fn_NvRmMemHandleAllocAttr ||
+        !fn_NvRmSurfaceComputeSize || !fn_NvRmSurfaceComputeAlignment)
+        return -1;
 
-    const NvRmSurface *surfs = NULL;
-    size_t surf_count = 0;
-    fn_nvgr_get_surfaces((void *)*buf, &surfs, &surf_count);
-    if (!surfs || surf_count == 0) return -1;
+    /* Open NvRm if needed */
+    if (!g_rm_handle && fn_NvRmOpen) {
+        fn_NvRmOpen(&g_rm_handle, 0);
+        FLOG("NvRmOpen -> %p\n", g_rm_handle);
+    }
+    if (!g_rm_handle) return -1;
 
-    /* Match JXD stock: StructSize + PayloadType required for NvCameraCore */
+    memset(nvmm, 0, sizeof(NvMMBuffer));
     nvmm->StructSize = sizeof(NvMMBuffer);
     nvmm->PayloadType = NvMMPayloadType_SurfaceArray;
     nvmm->BufferID = buf_id;
 
     NvMMSurfaceDescriptor *desc = &nvmm->Payload.Surfaces;
-    memset(desc, 0, sizeof(*desc));
-    memcpy(desc->Surfaces, surfs,
-           sizeof(NvRmSurface) * (surf_count > 3 ? 3 : surf_count));
-    desc->SurfaceCount = surf_count;
+
+    /* Set up NV12 2-plane pitchlinear manually (avoid NvRmMultiplanarSurfaceSetup crash) */
+    NvRmSurface *s0 = &desc->Surfaces[0];
+    NvRmSurface *s1 = &desc->Surfaces[1];
+
+    /* Y plane */
+    s0->Width = w;
+    s0->Height = h;
+    s0->ColorFormat = 0x08592004; /* NvColorFormat_Y8 */
+    s0->Layout = NvRmSurfaceLayout_Pitch;
+    s0->Pitch = (w + 63) & ~63; /* 64-byte aligned pitch */
+    s0->Offset = 0;
+
+    /* UV plane (NV12: U8_V8 interleaved) */
+    s1->Width = w / 2;
+    s1->Height = h / 2;
+    s1->ColorFormat = 0x10580c0b; /* NvColorFormat_U8_V8 */
+    s1->Layout = NvRmSurfaceLayout_Pitch;
+    s1->Pitch = s0->Pitch; /* same pitch as Y */
+    s1->Offset = 0;
+
+    desc->SurfaceCount = 2;
     desc->Empty = NV_TRUE;
 
-    FLOG("link_buffer: id=%u surfs=%zu %ux%u fmt=0x%x pitch=%u layout=%u kind=%u bh=%u hMem=%p\n",
-         buf_id, surf_count, surfs[0].Width, surfs[0].Height,
-         surfs[0].ColorFormat, surfs[0].Pitch, surfs[0].Layout,
-         surfs[0].Kind, surfs[0].BlockHeightLog2, surfs[0].hMem);
-    if (surf_count > 1)
-        FLOG("  surf[1]: %ux%u fmt=0x%x pitch=%u layout=%u\n",
-             surfs[1].Width, surfs[1].Height,
-             surfs[1].ColorFormat, surfs[1].Pitch, surfs[1].Layout);
+    /* Allocate memory for each surface via NvRm */
+    /* NvRmHeap enum: External=1, Carveout=2, IRAM=3, GART=4 */
+    NvU32 heaps[] = { 2 /* Carveout */ };
+    for (int i = 0; i < 2; i++) {
+        NvRmSurface *s = &desc->Surfaces[i];
+        NvU32 size = s->Pitch * s->Height;
+        /* NvRmMemHandleAttr struct layout from nvrm_memmgr.h */
+        struct {
+            const NvU32 *Heaps;
+            NvU32 NumHeaps;
+            NvU32 Alignment;
+            NvU32 Coherency; /* WriteBack=2 */
+            NvU32 Size;
+            NvU32 Tags;
+            NvU32 Kind;
+            NvU32 CompTags;
+        } attr;
+        memset(&attr, 0, sizeof(attr));
+        attr.Heaps = heaps;
+        attr.NumHeaps = 1;
+        attr.Alignment = 64;
+        attr.Coherency = 2; /* WriteBack */
+        attr.Size = size;
+        attr.Kind = s->Kind;
+        int err = fn_NvRmMemHandleAllocAttr(g_rm_handle, &attr, &s->hMem);
+        if (err != 0) {
+            FLOG("NvRmMemHandleAllocAttr surf %d size=%u failed: %d\n", i, size, err);
+            return -1;
+        }
+    }
+
+    FLOG("alloc_nvmm: id=%u %ux%u s0: fmt=0x%x pitch=%u hMem=%p s1: fmt=0x%x pitch=%u hMem=%p\n",
+         buf_id, w, h,
+         desc->Surfaces[0].ColorFormat, desc->Surfaces[0].Pitch, desc->Surfaces[0].hMem,
+         desc->Surfaces[1].ColorFormat, desc->Surfaces[1].Pitch, desc->Surfaces[1].hMem);
 
     return 0;
 }
@@ -548,11 +623,14 @@ static int hal3_register_stream_buffers(const camera3_device_t *dev,
     FLOG("register_stream_buffers: %d buffers for stream %p\n",
          buf_set->num_buffers, buf_set->stream);
 
-    /* Pre-link all buffers to NvMMBuffer */
+    /* Allocate own pitchlinear NV12 buffers for NvCameraCore output.
+     * Stock HAL does this too — NvCameraCore doesn't write to gralloc blocklinear. */
     int n = buf_set->num_buffers > MAX_BUFFERS ? MAX_BUFFERS : buf_set->num_buffers;
+    NvU32 w = buf_set->stream ? buf_set->stream->width : 2048;
+    NvU32 h = buf_set->stream ? buf_set->stream->height : 1536;
     for (int i = 0; i < n; i++) {
         ctx->stream.anb_handles[i] = buf_set->buffers[i];
-        link_buffer(buf_set->buffers[i], &ctx->stream.nvmm_bufs[i], i);
+        alloc_nvmm_surface(&ctx->stream.nvmm_bufs[i], i, w, h);
     }
     ctx->stream.num_bufs = n;
 
@@ -597,11 +675,13 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
         }
     }
 
-    /* Not pre-linked — link on the fly */
+    /* Not pre-allocated — allocate on the fly */
     if (!nvmm && ctx->stream.num_bufs < MAX_BUFFERS) {
         int idx = ctx->stream.num_bufs;
+        NvU32 w = ctx->stream.stream ? ctx->stream.stream->width : 2048;
+        NvU32 h = ctx->stream.stream ? ctx->stream.stream->height : 1536;
         ctx->stream.anb_handles[idx] = out_copy.buffer;
-        if (link_buffer(out_copy.buffer, &ctx->stream.nvmm_bufs[idx], idx) == 0) {
+        if (alloc_nvmm_surface(&ctx->stream.nvmm_bufs[idx], idx, w, h) == 0) {
             nvmm = &ctx->stream.nvmm_bufs[idx];
             ctx->stream.num_bufs++;
         }
@@ -652,41 +732,28 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     FLOG("frame %u done=%d shutter=%d wait=%dms\n",
          frame_num, ctx->frame_done, (int)(ctx->shutter_timestamp != 0), wait_ms);
 
-    /* Save first frame via NvRmMemMap (like stock MIPreview::MapSurface) */
-    if (frame_num == 0 && ctx->frame_done && fn_NvRmMemMap && fn_NvRmSurfaceComputeSize) {
-        const NvRmSurface *surfs = NULL;
-        size_t surf_count = 0;
-        fn_nvgr_get_surfaces((void *)*out_copy.buffer, &surfs, &surf_count);
-
-        if (surfs && surf_count > 0) {
-            NvU32 size0 = fn_NvRmSurfaceComputeSize(&surfs[0]);
-            void *mapped = NULL;
-            int err = fn_NvRmMemMap(surfs[0].hMem, surfs[0].Offset, size0, 0x23, &mapped);
-            FLOG("NvRmMemMap: hMem=%p off=%u size=%u -> %d mapped=%p\n",
-                 surfs[0].hMem, surfs[0].Offset, size0, err, mapped);
-
-            if (err == 0 && mapped) {
-                if (fn_NvRmMemCacheSyncForCpu)
-                    fn_NvRmMemCacheSyncForCpu(surfs[0].hMem, mapped, size0);
-
-                /* Check first bytes */
-                uint8_t *p = (uint8_t *)mapped;
-                int non_init = 0;
-                NvU32 check = size0 > 65536 ? 65536 : size0;
-                for (NvU32 i = 0; i < check; i++) {
-                    if (p[i] != 0x10 && p[i] != 0x80 && p[i] != 0) non_init++;
-                }
-                FLOG("frame0: first %u bytes: non_init=%d (first=%02x)\n",
-                     check, non_init, p[0]);
-
-                FILE *f = fopen("/data/frame0_nvmap.raw", "wb");
-                if (f) {
-                    fwrite(mapped, 1, size0, f);
-                    fclose(f);
-                    FLOG("frame0: saved nvmap %u bytes\n", size0);
-                }
-                fn_NvRmMemUnmap(surfs[0].hMem, mapped, size0);
+    /* Save first frame from our allocated NvMM buffer via NvRmMemRead */
+    if (frame_num == 0 && ctx->frame_done && fn_NvRmMemRead) {
+        NvRmSurface *s0 = &nvmm->Payload.Surfaces.Surfaces[0];
+        NvU32 size0 = s0->Pitch * s0->Height;
+        uint8_t *buf = (uint8_t *)malloc(size0);
+        if (buf) {
+            fn_NvRmMemRead(s0->hMem, 0, buf, size0);
+            int non_init = 0;
+            NvU32 check = size0 > 65536 ? 65536 : size0;
+            for (NvU32 i = 0; i < check; i++) {
+                if (buf[i] != 0x10 && buf[i] != 0x80 && buf[i] != 0) non_init++;
             }
+            FLOG("frame0: Y plane %u bytes non_init=%d (first: %02x %02x %02x %02x)\n",
+                 size0, non_init, buf[0], buf[1], buf[2], buf[3]);
+
+            FILE *f = fopen("/data/frame0_nvmap.raw", "wb");
+            if (f) {
+                fwrite(buf, 1, size0, f);
+                fclose(f);
+                FLOG("frame0: saved %u bytes\n", size0);
+            }
+            free(buf);
         }
     }
 
