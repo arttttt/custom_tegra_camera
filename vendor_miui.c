@@ -13,12 +13,8 @@
 
 static void miui_add_static(camera_metadata_t *m, meta_add_fn add)
 {
-    /* setTimestampMultFactor reads maxFrameDuration from static info */
-    int64_t max_frame_dur = 300000000LL; /* 300ms */
-    add(m, MIUI_SENSOR_INFO_MAX_FRAME_DUR, &max_frame_dur, 1);
-
-    int32_t white_level = 4095; /* 12-bit sensor */
-    add(m, MIUI_SENSOR_INFO_WHITE_LEVEL, &white_level, 1);
+    /* maxFrameDuration and whiteLevel now in core static info */
+    (void)m; (void)add;
 }
 
 static void miui_add_request(camera_metadata_t *m, meta_add_fn add)

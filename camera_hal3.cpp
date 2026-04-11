@@ -101,134 +101,160 @@ static int load_libs(void)
 /* Minimal camera_metadata builders                                            */
 /* -------------------------------------------------------------------------- */
 
-static camera_metadata_t *build_static_info(void)
+/*
+ * Build static camera characteristics matching stock MIUI camera.tegra.so dump.
+ * Camera 1 = OV5693 front (facing=1, orientation=270).
+ * 53 entries, ~880 bytes extra data.
+ */
+static camera_metadata_t *build_static_info(int camera_id)
 {
     if (!fn_alloc_meta || !fn_add_meta) return NULL;
 
-    camera_metadata_t *m = fn_alloc_meta(50, 2048);
+    camera_metadata_t *m = fn_alloc_meta(64, 2048);
     if (!m) return NULL;
 
-    /* Minimal static characteristics for camera service to work */
-    uint8_t facing = CAMERA_FACING_FRONT;
-    int32_t orientation = 270;
-    int32_t max_output_streams[] = {0, 1, 0}; /* raw, processed, jpeg */
-    int32_t active_array[] = {0, 0, 2592, 1944};
-    int32_t pixel_array[] = {2592, 1944};
-    int32_t avail_formats[] = {HAL_PIXEL_FORMAT_YCrCb_420_SP,
-                               HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED};
-    int32_t avail_stream_configs[] = {
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 2592, 1944, 0, /* OUTPUT */
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 1920, 1080, 0,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 1280, 720, 0,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 640, 480, 0,
-        HAL_PIXEL_FORMAT_YCrCb_420_SP, 2592, 1944, 0,
-        HAL_PIXEL_FORMAT_YCrCb_420_SP, 1920, 1080, 0,
-        HAL_PIXEL_FORMAT_YCrCb_420_SP, 640, 480, 0,
-    };
-    int64_t min_frame_durations[] = {
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 2592, 1944, 33333333LL,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 1920, 1080, 33333333LL,
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 640, 480, 33333333LL,
-    };
-    int64_t stall_durations[] = {
-        HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, 2592, 1944, 0LL,
-    };
-    uint8_t hw_level = 2; /* FULL */
-    int32_t max_regions[] = {0, 0, 0}; /* AE, AWB, AF */
-    uint8_t avail_caps[] = {0}; /* BACKWARD_COMPATIBLE */
-    int32_t request_keys[] = {0};
-    int32_t result_keys[] = {0};
-    int32_t chars_keys[] = {0};
+    /* --- android.control --- */
+    uint8_t antibanding[] = {0, 1, 2, 3}; /* OFF, 50HZ, 60HZ, AUTO */
+    uint8_t ae_modes[] = {0, 1};           /* OFF, ON */
+    int32_t ae_fps[] = {15, 30, 30, 30};   /* [min,max] x 2 ranges */
+    int32_t ae_comp_range[] = {-4, 4};
+    int32_t ae_comp_step[] = {1, 2};       /* rational: 1/2 = 0.5 */
+    uint8_t af_modes[] = {0};              /* OFF (front camera, no AF) */
+    uint8_t effects[] = {0, 1, 2, 3, 4, 5, 8}; /* OFF..AQUA (7 entries like stock) */
+    uint8_t scene_modes[16]; memset(scene_modes, 0, 16); /* 16 scene modes */
+    uint8_t vstab[] = {0, 1};              /* OFF, ON */
+    uint8_t awb_modes[] = {0, 1, 2, 3, 4, 5, 6, 7, 8}; /* OFF..SHADE (9) */
+    int32_t max_regions = 0;
+    uint8_t scene_overrides[48]; memset(scene_overrides, 0, 48); /* 16 modes x 3 */
+    int32_t high_fps[] = {0, 0, 0};        /* no high-fps modes */
 
-    /* AE fps ranges — required by Camera2-Parameters */
-    int32_t ae_fps_ranges[] = {15, 30};
-    int32_t ae_compensation_range[] = {-4, 4};
-    float ae_compensation_step[] = {0.5f}; /* rational as float */
-    uint8_t ae_available_modes[] = {0, 1}; /* OFF, ON */
-    uint8_t awb_available_modes[] = {0, 1}; /* OFF, AUTO */
-    uint8_t af_available_modes[] = {0}; /* OFF */
-    uint8_t avail_effects[] = {0}; /* OFF */
-    uint8_t avail_scene_modes[] = {0}; /* DISABLED */
-    uint8_t avail_antibanding[] = {0}; /* OFF */
-    float focal_lengths[] = {3.5f};
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_ANTIBANDING, antibanding, 4);
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_MODES, ae_modes, 2);
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_FPS_RANGES, ae_fps, 4);
+    fn_add_meta(m, MIUI_CONTROL_AE_COMP_RANGE, ae_comp_range, 2);
+    fn_add_meta(m, MIUI_CONTROL_AE_COMP_STEP, ae_comp_step, 1); /* rational[1] */
+    fn_add_meta(m, MIUI_CONTROL_AF_AVAIL_MODES, af_modes, 1);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_EFFECTS, effects, 7);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_SCENE_MODES, scene_modes, 16);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_VSTAB_MODES, vstab, 2);
+    fn_add_meta(m, MIUI_CONTROL_AWB_AVAIL_MODES, awb_modes, 9);
+    fn_add_meta(m, MIUI_CONTROL_MAX_REGIONS, &max_regions, 1);
+    fn_add_meta(m, MIUI_CONTROL_SCENE_MODE_OVERRIDES, scene_overrides, 48);
+    fn_add_meta(m, MIUI_CONTROL_HIGH_FPS_RECORDING, high_fps, 3);
+
+    /* --- android.flash.info --- */
+    uint8_t flash_avail = 0;
+    int64_t flash_charge = 0;
+    fn_add_meta(m, MIUI_FLASH_INFO_AVAILABLE, &flash_avail, 1);
+    fn_add_meta(m, MIUI_FLASH_INFO_CHARGE_DUR, &flash_charge, 1);
+
+    /* --- android.jpeg --- */
+    int32_t thumb_sizes[] = {0, 0, 160, 120, 320, 240};
+    int32_t jpeg_max = 2592 * 1944 * 3 / 2 + 65536;
+    fn_add_meta(m, MIUI_JPEG_AVAIL_THUMB_SIZES, thumb_sizes, 6);
+    fn_add_meta(m, MIUI_JPEG_MAX_SIZE, &jpeg_max, 1);
+
+    /* --- android.lens + lens.info --- */
+    uint8_t facing = (camera_id == 0) ? 0 : 1; /* BACK=0, FRONT=1 */
+    float lens_pos[] = {0.0f, 0.0f, 0.0f};
     float apertures[] = {2.0f};
-    int32_t max_face_count[] = {0};
-    int64_t exposure_range[] = {1000000LL, 300000000LL}; /* 1ms - 300ms */
-    int32_t sensitivity_range[] = {100, 1600};
+    float focal_lengths[] = {3.5f};
+    uint8_t ois_modes[] = {0}; /* OFF */
+    float hyperfocal = 0.0f;
+    float min_focus = 0.0f;
 
     fn_add_meta(m, MIUI_LENS_FACING, &facing, 1);
-    fn_add_meta(m, MIUI_SENSOR_ORIENTATION, &orientation, 1);
-    fn_add_meta(m, MIUI_REQUEST_MAX_NUM_OUTPUT_STREAMS, max_output_streams, 3);
-    fn_add_meta(m, MIUI_SENSOR_INFO_ACTIVE_ARRAY, active_array, 4);
-    fn_add_meta(m, MIUI_SENSOR_INFO_PIXEL_ARRAY, pixel_array, 2);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_FORMATS, avail_formats, 2);
-    fn_add_meta(m, MIUI_CONTROL_MAX_REGIONS, max_regions, 3);
-    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_FPS_RANGES, ae_fps_ranges, 2);
-    fn_add_meta(m, MIUI_CONTROL_AE_COMP_RANGE, ae_compensation_range, 2);
-    fn_add_meta(m, MIUI_CONTROL_AE_COMP_STEP, ae_compensation_step, 1);
-    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_MODES, ae_available_modes, 2);
-    fn_add_meta(m, MIUI_CONTROL_AWB_AVAIL_MODES, awb_available_modes, 2);
-    fn_add_meta(m, MIUI_CONTROL_AF_AVAIL_MODES, af_available_modes, 1);
-    fn_add_meta(m, MIUI_CONTROL_AVAIL_EFFECTS, avail_effects, 1);
-    fn_add_meta(m, MIUI_CONTROL_AVAIL_SCENE_MODES, avail_scene_modes, 1);
-    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_ANTIBANDING, avail_antibanding, 1);
-    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_FOCAL_LENGTHS, focal_lengths, 1);
+    fn_add_meta(m, MIUI_LENS_POSITION, lens_pos, 3);
     fn_add_meta(m, MIUI_LENS_INFO_AVAIL_APERTURES, apertures, 1);
-    fn_add_meta(m, MIUI_STATS_INFO_MAX_FACE_COUNT, max_face_count, 1);
-    fn_add_meta(m, MIUI_SENSOR_INFO_EXPOSURE_RANGE, exposure_range, 2);
-    fn_add_meta(m, MIUI_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
+    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_FILTER_DENS, NULL, 0); /* float[0] */
+    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_FOCAL_LENGTHS, focal_lengths, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_OIS, ois_modes, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_HYPERFOCAL_DIST, &hyperfocal, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_MIN_FOCUS_DISTANCE, &min_focus, 1);
 
-    /* Scaler: processed sizes, JPEG sizes, min durations */
-    int32_t processed_sizes[] = {2592, 1944, 1920, 1080, 1280, 720, 640, 480};
-    int32_t jpeg_sizes[] = {2592, 1944, 1920, 1080};
-    int64_t processed_min_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
-    int64_t jpeg_min_dur[] = {33333333LL, 33333333LL};
-
-    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_SIZES, processed_sizes, 8);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_SIZES, jpeg_sizes, 4);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_MIN_DUR, processed_min_dur, 4);
-    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_MIN_DUR, jpeg_min_dur, 2);
-
-    /* JPEG thumbnail sizes */
-    int32_t thumb_sizes[] = {0, 0, 160, 120, 320, 240};
-    fn_add_meta(m, MIUI_JPEG_AVAIL_THUMB_SIZES, thumb_sizes, 6);
-
-    /* Flash */
-    uint8_t flash_available = 0;
-    fn_add_meta(m, MIUI_FLASH_INFO_AVAILABLE, &flash_available, 1);
-
-    /* Video stabilization */
-    uint8_t vstab_modes[] = {0}; /* OFF */
-    fn_add_meta(m, MIUI_CONTROL_AVAIL_VSTAB_MODES, vstab_modes, 1);
-
-    /* Max digital zoom */
+    /* --- android.scaler --- */
+    int32_t formats[] = {0x20, 0x22, 0x11, 0x100, 0x23}; /* 5 formats like stock */
     float max_zoom = 1.0f;
+    /* OV5693: 21 processed sizes (42 ints), 9 jpeg sizes (18 ints) */
+    int32_t proc_sizes[] = {
+        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
+        1280, 960,  1280, 720,  1024, 768,  960,  720,
+        800,  600,  720,  480,  640,  480,  352,  288,
+        320,  240,  176,  144,  160,  120,  2592, 1944,
+        2048, 1536, 1920, 1080, 1600, 1200, 1280, 960,
+        1280, 720,
+    };
+    int64_t proc_dur[21]; for (int i = 0; i < 21; i++) proc_dur[i] = 33333333LL;
+    int32_t jpeg_sizes[] = {
+        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
+        1280, 960,  1280, 720,  1024, 768,  640,  480,
+        320,  240,
+    };
+    int64_t jpeg_dur[9]; for (int i = 0; i < 9; i++) jpeg_dur[i] = 33333333LL;
+    int32_t raw_sizes[] = {2592, 1944, 2592, 1944, 2592, 1944, 2592, 1944};
+    int64_t raw_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
+
+    fn_add_meta(m, MIUI_SCALER_AVAIL_FORMATS, formats, 5);
     fn_add_meta(m, MIUI_SCALER_AVAIL_MAX_DIGITAL_ZOOM, &max_zoom, 1);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_RAW_SIZES, raw_sizes, 8);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_RAW_MIN_DUR, raw_dur, 4);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_SIZES, proc_sizes, 42);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_MIN_DUR, proc_dur, 21);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_SIZES, jpeg_sizes, 18);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_MIN_DUR, jpeg_dur, 9);
 
-    /* Physical sensor size (mm) — OV5693 1/4" approx */
+    /* --- android.sensor + sensor.info --- */
+    int32_t active_array[] = {0, 0, 2592, 1944};
+    int32_t sensitivity_range[] = {100, 1600};
+    uint8_t color_filter = 0; /* RGGB */
+    int64_t exposure_range[] = {1000000LL, 300000000LL};
+    int64_t max_frame_dur = 300000000LL;
     float physical_size[] = {3.67f, 2.74f};
+    int32_t pixel_array[] = {2592, 1944};
+    int32_t white_level = 4095;
+    int32_t black_level[] = {64, 64, 64, 64};
+    int32_t orientation = (camera_id == 0) ? 90 : 270;
+    int32_t max_analog_sens = 800;
+
+    fn_add_meta(m, MIUI_SENSOR_INFO_ACTIVE_ARRAY, active_array, 4);
+    fn_add_meta(m, MIUI_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_COLOR_FILTER, &color_filter, 1);
+    fn_add_meta(m, MIUI_SENSOR_INFO_EXPOSURE_RANGE, exposure_range, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_MAX_FRAME_DUR, &max_frame_dur, 1);
     fn_add_meta(m, MIUI_SENSOR_INFO_PHYSICAL_SIZE, physical_size, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_PIXEL_ARRAY, pixel_array, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_WHITE_LEVEL, &white_level, 1);
+    fn_add_meta(m, MIUI_SENSOR_BLACK_LEVEL_PATTERN, black_level, 4);
+    fn_add_meta(m, MIUI_SENSOR_ORIENTATION, &orientation, 1);
+    fn_add_meta(m, MIUI_SENSOR_MAX_ANALOG_SENSITIVITY, &max_analog_sens, 1);
 
-    /* Face detect */
-    uint8_t face_detect_modes[] = {0}; /* OFF */
-    fn_add_meta(m, MIUI_STATS_INFO_AVAIL_FACE_DETECT, face_detect_modes, 1);
+    /* --- android.statistics.info --- */
+    uint8_t face_detect[] = {0, 1}; /* OFF, SIMPLE */
+    int32_t hist_buckets = 64;
+    int32_t max_face = 0;
+    int32_t max_hist = 1000;
+    int32_t max_sharp = 1000;
+    int32_t sharp_map[] = {64, 64};
+    fn_add_meta(m, MIUI_STATS_INFO_AVAIL_FACE_DETECT, face_detect, 2);
+    fn_add_meta(m, MIUI_STATS_INFO_HISTOGRAM_BUCKETS, &hist_buckets, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_MAX_FACE_COUNT, &max_face, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_MAX_HISTOGRAM_COUNT, &max_hist, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_MAX_SHARPNESS_VAL, &max_sharp, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_SHARPNESS_MAP_SIZE, sharp_map, 2);
 
-    /* Lens */
-    float min_focus_dist = 0.0f; /* fixed focus */
-    fn_add_meta(m, MIUI_LENS_INFO_MIN_FOCUS_DISTANCE, &min_focus_dist, 1);
+    /* --- android.tonemap --- */
+    int32_t tonemap_points = 128;
+    fn_add_meta(m, MIUI_TONEMAP_MAX_CURVE_POINTS, &tonemap_points, 1);
 
-    /* JPEG max size */
-    int32_t jpeg_max_size = 2592 * 1944 * 3 / 2 + 65536; /* NV12 + overhead */
-    fn_add_meta(m, MIUI_JPEG_MAX_SIZE, &jpeg_max_size, 1);
-
-    /* Hardware level */
+    /* --- android.info --- */
+    uint8_t hw_level = 0; /* LIMITED (not FULL — stock uses 0) */
     fn_add_meta(m, MIUI_INFO_HW_LEVEL, &hw_level, 1);
 
-    (void)avail_stream_configs; (void)min_frame_durations;
-    (void)stall_durations; (void)avail_caps;
-    (void)request_keys; (void)result_keys; (void)chars_keys;
+    /* --- android.quirks --- */
+    uint8_t partial_result = 1;
+    fn_add_meta(m, MIUI_QUIRKS_USE_PARTIAL_RESULT, &partial_result, 1);
 
-    /* Vendor-specific stubs (MIUI needs extra tags, AOSP/LOS = noop) */
+    /* Vendor-specific stubs (MIUI CameraService extras) */
     vendor_ops_get()->add_static_metadata(m, fn_add_meta);
 
     return m;
@@ -594,10 +620,10 @@ static camera3_device_ops_t g_hal3_ops = {
 /* camera_module_t                                                             */
 /* -------------------------------------------------------------------------- */
 
-static int g_detect_done;
-static camera_metadata_t *g_static_info;
+#define NUM_CAMERAS 2
 
-static int g_num_cameras;
+static int g_detect_done;
+static camera_metadata_t *g_static_info[NUM_CAMERAS];
 
 static int hal3_get_number_of_cameras(void)
 {
@@ -608,7 +634,6 @@ static int hal3_get_number_of_cameras(void)
         if (load_libs() != 0) {
             FLOG("FATAL: load_libs failed\n");
             g_detect_done = 1;
-            g_num_cameras = 0;
             return 0;
         }
 
@@ -618,33 +643,27 @@ static int hal3_get_number_of_cameras(void)
             FLOG("NvMMCameraDeviceDetect done\n");
         }
 
-        g_static_info = build_static_info();
-        FLOG("static_info=%p alloc_meta=%p add_meta=%p\n",
-             g_static_info, fn_alloc_meta, fn_add_meta);
-
-        /* If metadata failed, report 0 cameras to prevent crash */
-        if (!g_static_info) {
-            FLOG("WARNING: no metadata, reporting 0 cameras\n");
-            g_num_cameras = 0;
-        } else {
-            g_num_cameras = 1;
+        for (int i = 0; i < NUM_CAMERAS; i++) {
+            g_static_info[i] = build_static_info(i);
+            FLOG("static_info[%d]=%p\n", i, g_static_info[i]);
         }
         g_detect_done = 1;
     }
-    return g_num_cameras;
+    return NUM_CAMERAS;
 }
 
 static int hal3_get_camera_info(int camera_id, struct camera_info *info)
 {
     if (!g_detect_done) hal3_get_number_of_cameras();
-    if (camera_id < 0 || camera_id >= g_num_cameras) return -EINVAL;
-    if (!g_static_info) return -ENODEV;
+    if (camera_id < 0 || camera_id >= NUM_CAMERAS) return -EINVAL;
+    if (!g_static_info[camera_id]) return -ENODEV;
 
-    info->facing = CAMERA_FACING_FRONT;
-    info->orientation = 270;
+    info->facing = (camera_id == 0) ? CAMERA_FACING_BACK : CAMERA_FACING_FRONT;
+    info->orientation = (camera_id == 0) ? 90 : 270;
     info->device_version = CAMERA_DEVICE_API_VERSION_3_0;
-    info->static_camera_characteristics = g_static_info;
-    FLOG("get_camera_info: id=%d OK\n", camera_id);
+    info->static_camera_characteristics = g_static_info[camera_id];
+    FLOG("get_camera_info: id=%d facing=%d orient=%d OK\n",
+         camera_id, info->facing, info->orientation);
     return 0;
 }
 
@@ -673,7 +692,7 @@ static int hal3_device_open(const hw_module_t *module, const char *id,
     if (!id || !device) return -EINVAL;
 
     int camera_id = atoi(id);
-    if (camera_id != 0) return -ENODEV;
+    if (camera_id < 0 || camera_id >= NUM_CAMERAS) return -ENODEV;
 
     if (load_libs() != 0) return -ENODEV;
 
@@ -683,9 +702,9 @@ static int hal3_device_open(const hw_module_t *module, const char *id,
 
     ctx->camera_id = camera_id;
 
-    /* Open NvCameraCore — GUID=1 for OV5693 front */
-    NvError err = fn_Open(&ctx->core_handle, 1);
-    FLOG("NvCameraCore_Open(1) -> %d handle=%p\n", err, ctx->core_handle);
+    /* Open NvCameraCore — GUID 0=IMX179 rear, 1=OV5693 front */
+    NvError err = fn_Open(&ctx->core_handle, camera_id);
+    FLOG("NvCameraCore_Open(%d) -> %d handle=%p\n", camera_id, err, ctx->core_handle);
     if (err != NvSuccess) {
         ALOGE("NvCameraCore_Open failed: %d", err);
         free(ctx); free(dev);

@@ -45,8 +45,12 @@
 #define MIUI_CONTROL_AF_STATE               0x10021
 #define MIUI_CONTROL_AWB_STATE              0x10023
 
+/* Section 1 (cont): MIUI-specific */
+#define MIUI_CONTROL_HIGH_FPS_RECORDING     0x10012
+
 /* Section 5: android.flash.info (0x50000) — unchanged */
 #define MIUI_FLASH_INFO_AVAILABLE           0x50000
+#define MIUI_FLASH_INFO_CHARGE_DUR          0x50001
 
 /* Section 9: android.jpeg (0x90000) — was section 8 in 7.1.2 */
 #define MIUI_JPEG_ORIENTATION               0x90003
@@ -58,10 +62,13 @@
 
 /* Section 10: android.lens (0xa0000) — was section 9 in 7.1.2 */
 #define MIUI_LENS_FACING                    0xa0005
+#define MIUI_LENS_POSITION                  0xa0007
 
 /* Section 11: android.lens.info (0xb0000) — was section 10 in 7.1.2 */
 #define MIUI_LENS_INFO_AVAIL_APERTURES      0xb0000
+#define MIUI_LENS_INFO_AVAIL_FILTER_DENS    0xb0001
 #define MIUI_LENS_INFO_AVAIL_FOCAL_LENGTHS  0xb0002
+#define MIUI_LENS_INFO_AVAIL_OIS            0xb0003
 #define MIUI_LENS_INFO_HYPERFOCAL_DIST      0xb0006
 #define MIUI_LENS_INFO_MIN_FOCUS_DISTANCE   0xb0007
 
@@ -76,26 +83,41 @@
 #define MIUI_SCALER_AVAIL_MAX_DIGITAL_ZOOM  0xf0004
 #define MIUI_SCALER_AVAIL_PROC_MIN_DUR      0xf0005
 #define MIUI_SCALER_AVAIL_PROC_SIZES        0xf0006
+#define MIUI_SCALER_AVAIL_RAW_MIN_DUR       0xf0007
+#define MIUI_SCALER_AVAIL_RAW_SIZES         0xf0008
 
 /* Section 16: android.sensor (0x100000) — was section 15 in 7.1.2 */
 #define MIUI_SENSOR_EXPOSURE_TIME           0x100000
 #define MIUI_SENSOR_FRAME_DURATION          0x100001
 #define MIUI_SENSOR_SENSITIVITY             0x100002
+#define MIUI_SENSOR_BLACK_LEVEL_PATTERN     0x100004
+#define MIUI_SENSOR_MAX_ANALOG_SENSITIVITY  0x10000b
 #define MIUI_SENSOR_ORIENTATION             0x10000d
 #define MIUI_SENSOR_TIMESTAMP               0x100010
 
 /* Section 17: android.sensor.info (0x110000) — was section 16 in 7.1.2 */
 #define MIUI_SENSOR_INFO_ACTIVE_ARRAY       0x110000
 #define MIUI_SENSOR_INFO_SENSITIVITY_RANGE  0x110001
+#define MIUI_SENSOR_INFO_COLOR_FILTER       0x110002
 #define MIUI_SENSOR_INFO_EXPOSURE_RANGE     0x110003
 #define MIUI_SENSOR_INFO_MAX_FRAME_DUR      0x110004
 #define MIUI_SENSOR_INFO_PHYSICAL_SIZE      0x110005
 #define MIUI_SENSOR_INFO_PIXEL_ARRAY        0x110006
 #define MIUI_SENSOR_INFO_WHITE_LEVEL        0x110007
 
+/* Section 13: android.quirks (0xd0000) — was section 12 in 7.1.2 */
+#define MIUI_QUIRKS_USE_PARTIAL_RESULT      0xd0003
+
 /* Section 20: android.statistics.info (0x140000) — was section 19 in 7.1.2 */
 #define MIUI_STATS_INFO_AVAIL_FACE_DETECT   0x140000
+#define MIUI_STATS_INFO_HISTOGRAM_BUCKETS   0x140001
 #define MIUI_STATS_INFO_MAX_FACE_COUNT      0x140002
+#define MIUI_STATS_INFO_MAX_HISTOGRAM_COUNT 0x140003
+#define MIUI_STATS_INFO_MAX_SHARPNESS_VAL   0x140004
+#define MIUI_STATS_INFO_SHARPNESS_MAP_SIZE  0x140005
+
+/* Section 21: android.tonemap (0x150000) — was section 20 in 7.1.2 */
+#define MIUI_TONEMAP_MAX_CURVE_POINTS       0x150004
 
 /* Section 23: android.info (0x170000) — was section 22 in 7.1.2 */
 #define MIUI_INFO_HW_LEVEL                  0x170000
