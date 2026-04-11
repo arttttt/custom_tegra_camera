@@ -178,7 +178,12 @@ static camera_metadata_t *build_static_info(int camera_id)
     /* --- android.scaler --- */
     int32_t formats[] = {0x20, 0x22, 0x11, 0x100, 0x23}; /* 5 formats like stock */
     float max_zoom = 1.0f;
-    /* OV5693 processed sizes (exclude 2048x1536 — gralloc can't allocate it) */
+    /*
+     * OV5693 processed sizes.
+     * Note: 2048x1536 (screen size) excluded for now — NVIDIA gralloc fails to
+     * allocate IMPLEMENTATION_DEFINED buffers at this size without NvCameraCore
+     * stream setup. TODO: add addStreams() integration.
+     */
     int32_t proc_sizes[] = {
         2592, 1944, 1920, 1080, 1600, 1200,
         1280, 960,  1280, 720,  1024, 768,  960,  720,
@@ -433,8 +438,9 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        s->usage = GRALLOC_USAGE_HW_CAMERA_WRITE;
-        s->max_buffers = 3;
+        /* Keep existing consumer usage, add producer usage */
+        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
+        s->max_buffers = 4;
 
         FLOG("  stream[%d]: %dx%d fmt=0x%x type=%d\n",
              i, s->width, s->height, s->format, s->stream_type);
