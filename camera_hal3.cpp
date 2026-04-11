@@ -454,6 +454,14 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         NvError err = fn_SetSensorMode(ctx->core_handle, mode);
         FLOG("SetSensorMode %dx%d -> %d\n",
              preview_stream->width, preview_stream->height, err);
+
+        /* If exact mode not supported, try full sensor resolution */
+        if (err != NvSuccess) {
+            mode.Resolution.width = 2592;
+            mode.Resolution.height = 1944;
+            err = fn_SetSensorMode(ctx->core_handle, mode);
+            FLOG("SetSensorMode fallback 2592x1944 -> %d\n", err);
+        }
     }
 
     return 0;
