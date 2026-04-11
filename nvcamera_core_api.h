@@ -127,11 +127,17 @@ typedef enum {
  * Payload metadata (from nvmm_buffertype.h).
  * Contains timestamp, flags, and metadata union (128 bytes total).
  */
+/*
+ * PayloadMetadata size verified via Ghidra RE of stock camera.tegra.so:
+ * InitializeNvMMBufferWithANB accesses Payload.Surfaces at offset 0x50 in NvMMBuffer,
+ * meaning PayloadInfo = 64 bytes total (not 128 as in JXD headers).
+ * MetaDataUnion = 64 - 8(TimeStamp) - 4(Flags) - 4(Type) = 48 bytes.
+ */
 typedef struct {
     NvU64 TimeStamp;          /* 8 bytes */
     NvU32 BufferFlags;        /* 4 bytes */
     NvU32 BufferMetaDataType; /* 4 bytes (enum) */
-    NvU8  MetaDataUnion[112]; /* largest member: 112 bytes */
+    NvU8  MetaDataUnion[48];  /* 48 bytes (MIUI binary, not 112 as in JXD) */
 } NvMMPayloadMetadata;
 
 /* Memory reference (for non-surface payloads) */
