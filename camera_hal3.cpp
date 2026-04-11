@@ -438,7 +438,10 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* Keep existing consumer usage, add producer usage */
+        /* NVIDIA gralloc can't allocate IMPLEMENTATION_DEFINED with camera usage.
+         * Override to NV21 (YCrCb_420_SP) which NVIDIA gralloc knows. */
+        if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
+            s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
         s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
         s->max_buffers = 4;
 
