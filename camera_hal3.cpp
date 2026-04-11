@@ -461,11 +461,11 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* NV21 format with SW_READ to force pitchlinear layout.
-         * Blocklinear (layout=3) buffers are not written by NvCameraCore ISP. */
+        /* NV21 format. Override usage to force pitchlinear layout.
+         * Framework adds HW_TEXTURE which forces blocklinear — NvCameraCore can't write to those. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
             s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_SW_READ_OFTEN;
+        s->usage = GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_SW_READ_OFTEN;
         s->max_buffers = 4;
 
         FLOG("  stream[%d]: %dx%d fmt=0x%x type=%d\n",
