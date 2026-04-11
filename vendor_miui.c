@@ -23,7 +23,13 @@ static void miui_add_static(camera_metadata_t *m, meta_add_fn add)
 
 static void miui_add_request(camera_metadata_t *m, meta_add_fn add)
 {
-    /* setTimestampMultFactor reads maxFrameDuration from request settings */
+    /*
+     * setTimestampMultFactor crashes if it can't find frame duration tags.
+     * Add both sensor.frameDuration and sensor.info.maxFrameDuration.
+     */
+    int64_t frame_dur = 33333333LL; /* 30fps */
+    add(m, MIUI_SENSOR_FRAME_DURATION, &frame_dur, 1);
+
     int64_t max_frame_dur = 300000000LL;
     add(m, MIUI_SENSOR_INFO_MAX_FRAME_DUR, &max_frame_dur, 1);
 }

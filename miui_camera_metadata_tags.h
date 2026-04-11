@@ -79,6 +79,7 @@
 
 /* Section 16: android.sensor (0x100000) — was section 15 in 7.1.2 */
 #define MIUI_SENSOR_EXPOSURE_TIME           0x100000
+#define MIUI_SENSOR_FRAME_DURATION          0x100001
 #define MIUI_SENSOR_SENSITIVITY             0x100002
 #define MIUI_SENSOR_ORIENTATION             0x10000d
 #define MIUI_SENSOR_TIMESTAMP               0x100010
