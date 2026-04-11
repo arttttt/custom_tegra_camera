@@ -24,5 +24,6 @@ LOCAL_C_INCLUDES := \
     frameworks/av/include
 
 LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
+LOCAL_LDFLAGS := -Wl,--hash-style=sysv
 
 include $(BUILD_SHARED_LIBRARY)
