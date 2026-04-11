@@ -24,23 +24,80 @@
 #include "nvcamera_core_api.h"
 
 /*
- * NVIDIA-specific camera_metadata tag IDs.
- * Stock MIUI firmware has extra tags (highFpsRecordingMode) in control section,
- * shifting IDs by +1 vs AOSP. We hardcode correct device IDs here.
+ * MIUI 4.4 camera_metadata tag IDs (from device dump).
+ *
+ * Two differences vs AOSP 7.1.2 headers we compile against:
+ * 1. GEOMETRIC section (6) exists in 4.4, removed in 5.0+ → sections 7+ shifted +1
+ * 2. highFpsRecordingMode (0x10012) in CONTROL → static control tags shifted +1
+ * 3. Xiaomi adds beauty(25)/watermark(26)/morpho(27) sections
+ *
+ * Sections 0-5 (colorCorrection..flash.info) are unchanged.
  */
-#define NV_ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES  0x10013
-#define NV_ANDROID_CONTROL_AE_AVAILABLE_MODES              0x10014
-#define NV_ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES  0x10015
-#define NV_ANDROID_CONTROL_AE_COMPENSATION_RANGE           0x10016
-#define NV_ANDROID_CONTROL_AE_COMPENSATION_STEP            0x10017
-#define NV_ANDROID_CONTROL_AF_AVAILABLE_MODES              0x10018
-#define NV_ANDROID_CONTROL_AVAILABLE_EFFECTS               0x10019
-#define NV_ANDROID_CONTROL_AVAILABLE_SCENE_MODES           0x1001a
-#define NV_ANDROID_CONTROL_AVAILABLE_VIDEO_STAB_MODES      0x1001b
-#define NV_ANDROID_CONTROL_AWB_AVAILABLE_MODES             0x1001c
-#define NV_ANDROID_CONTROL_MAX_REGIONS                     0x1001d
 
-/* These sections have no NVIDIA additions — use AOSP IDs directly */
+/* Control section (1) — dynamic tags 0x10000-0x10011 same as AOSP */
+#define MIUI_CONTROL_AE_MODE                0x10003
+#define MIUI_CONTROL_AWB_MODE               0x1000b
+#define MIUI_CONTROL_CAPTURE_INTENT         0x1000d
+#define MIUI_CONTROL_MODE                   0x1000f
+/* Control static tags — shifted +1 by highFpsRecordingMode */
+#define MIUI_CONTROL_AE_AVAIL_ANTIBANDING   0x10013
+#define MIUI_CONTROL_AE_AVAIL_MODES         0x10014
+#define MIUI_CONTROL_AE_AVAIL_FPS_RANGES    0x10015
+#define MIUI_CONTROL_AE_COMP_RANGE          0x10016
+#define MIUI_CONTROL_AE_COMP_STEP           0x10017
+#define MIUI_CONTROL_AF_AVAIL_MODES         0x10018
+#define MIUI_CONTROL_AVAIL_EFFECTS          0x10019
+#define MIUI_CONTROL_AVAIL_SCENE_MODES      0x1001a
+#define MIUI_CONTROL_AVAIL_VSTAB_MODES      0x1001b
+#define MIUI_CONTROL_AWB_AVAIL_MODES        0x1001c
+#define MIUI_CONTROL_MAX_REGIONS            0x1001d
+/* Control dynamic result tags — also shifted */
+#define MIUI_CONTROL_AE_STATE               0x10020
+#define MIUI_CONTROL_AWB_STATE              0x10023
+
+/* Flash.info section (5) — unchanged */
+#define MIUI_FLASH_INFO_AVAILABLE           0x50000
+
+/* JPEG section (9 on 4.4, 8 on 7.1.2) */
+#define MIUI_JPEG_AVAIL_THUMB_SIZES         0x90007
+#define MIUI_JPEG_MAX_SIZE                  0x90008
+
+/* Lens section (10 on 4.4, 9 on 7.1.2) */
+#define MIUI_LENS_FACING                    0xa0005
+
+/* Lens.info section (11 on 4.4, 10 on 7.1.2) */
+#define MIUI_LENS_INFO_AVAIL_FOCAL_LENGTHS  0xb0002
+#define MIUI_LENS_INFO_AVAIL_APERTURES      0xb0000
+#define MIUI_LENS_INFO_MIN_FOCUS_DISTANCE   0xb0007
+
+/* Request section (14 on 4.4, 13 on 7.1.2) */
+#define MIUI_REQUEST_MAX_NUM_OUTPUT_STREAMS 0xe0006
+
+/* Scaler section (15 on 4.4, 14 on 7.1.2) */
+#define MIUI_SCALER_AVAIL_FORMATS           0xf0001
+#define MIUI_SCALER_AVAIL_JPEG_MIN_DUR      0xf0002
+#define MIUI_SCALER_AVAIL_JPEG_SIZES        0xf0003
+#define MIUI_SCALER_AVAIL_MAX_DIGITAL_ZOOM  0xf0004
+#define MIUI_SCALER_AVAIL_PROC_MIN_DUR      0xf0005
+#define MIUI_SCALER_AVAIL_PROC_SIZES        0xf0006
+
+/* Sensor section (16 on 4.4, 15 on 7.1.2) */
+#define MIUI_SENSOR_ORIENTATION             0x10000d
+#define MIUI_SENSOR_TIMESTAMP               0x100010
+
+/* Sensor.info section (17 on 4.4, 16 on 7.1.2) */
+#define MIUI_SENSOR_INFO_ACTIVE_ARRAY       0x110000
+#define MIUI_SENSOR_INFO_SENSITIVITY_RANGE  0x110001
+#define MIUI_SENSOR_INFO_EXPOSURE_RANGE     0x110003
+#define MIUI_SENSOR_INFO_PHYSICAL_SIZE      0x110005
+#define MIUI_SENSOR_INFO_PIXEL_ARRAY        0x110006
+
+/* Statistics.info section (20 on 4.4, 19 on 7.1.2) */
+#define MIUI_STATS_INFO_AVAIL_FACE_DETECT   0x140000
+#define MIUI_STATS_INFO_MAX_FACE_COUNT      0x140002
+
+/* Info section (23 on 4.4, 22 on 7.1.2) */
+#define MIUI_INFO_HW_LEVEL                  0x170000
 
 /* Pixel formats & gralloc usage */
 #define HAL_PIXEL_FORMAT_YCrCb_420_SP       0x11
@@ -172,27 +229,27 @@ static camera_metadata_t *build_static_info(void)
     int64_t exposure_range[] = {1000000LL, 300000000LL}; /* 1ms - 300ms */
     int32_t sensitivity_range[] = {100, 1600};
 
-    fn_add_meta(m, ANDROID_LENS_FACING, &facing, 1);
-    fn_add_meta(m, ANDROID_SENSOR_ORIENTATION, &orientation, 1);
-    fn_add_meta(m, ANDROID_REQUEST_MAX_NUM_OUTPUT_STREAMS, max_output_streams, 3);
-    fn_add_meta(m, ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE, active_array, 4);
-    fn_add_meta(m, ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE, pixel_array, 2);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_FORMATS, avail_formats, 2);
-    fn_add_meta(m, NV_ANDROID_CONTROL_MAX_REGIONS, max_regions, 3);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES, ae_fps_ranges, 2);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AE_COMPENSATION_RANGE, ae_compensation_range, 2);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AE_COMPENSATION_STEP, ae_compensation_step, 1);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_MODES, ae_available_modes, 2);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AWB_AVAILABLE_MODES, awb_available_modes, 2);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AF_AVAILABLE_MODES, af_available_modes, 1);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_EFFECTS, avail_effects, 1);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_SCENE_MODES, avail_scene_modes, 1);
-    fn_add_meta(m, NV_ANDROID_CONTROL_AE_AVAILABLE_ANTIBANDING_MODES, avail_antibanding, 1);
-    fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_FOCAL_LENGTHS, focal_lengths, 1);
-    fn_add_meta(m, ANDROID_LENS_INFO_AVAILABLE_APERTURES, apertures, 1);
-    fn_add_meta(m, ANDROID_STATISTICS_INFO_MAX_FACE_COUNT, max_face_count, 1);
-    fn_add_meta(m, ANDROID_SENSOR_INFO_EXPOSURE_TIME_RANGE, exposure_range, 2);
-    fn_add_meta(m, ANDROID_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
+    fn_add_meta(m, MIUI_LENS_FACING, &facing, 1);
+    fn_add_meta(m, MIUI_SENSOR_ORIENTATION, &orientation, 1);
+    fn_add_meta(m, MIUI_REQUEST_MAX_NUM_OUTPUT_STREAMS, max_output_streams, 3);
+    fn_add_meta(m, MIUI_SENSOR_INFO_ACTIVE_ARRAY, active_array, 4);
+    fn_add_meta(m, MIUI_SENSOR_INFO_PIXEL_ARRAY, pixel_array, 2);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_FORMATS, avail_formats, 2);
+    fn_add_meta(m, MIUI_CONTROL_MAX_REGIONS, max_regions, 3);
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_FPS_RANGES, ae_fps_ranges, 2);
+    fn_add_meta(m, MIUI_CONTROL_AE_COMP_RANGE, ae_compensation_range, 2);
+    fn_add_meta(m, MIUI_CONTROL_AE_COMP_STEP, ae_compensation_step, 1);
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_MODES, ae_available_modes, 2);
+    fn_add_meta(m, MIUI_CONTROL_AWB_AVAIL_MODES, awb_available_modes, 2);
+    fn_add_meta(m, MIUI_CONTROL_AF_AVAIL_MODES, af_available_modes, 1);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_EFFECTS, avail_effects, 1);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_SCENE_MODES, avail_scene_modes, 1);
+    fn_add_meta(m, MIUI_CONTROL_AE_AVAIL_ANTIBANDING, avail_antibanding, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_FOCAL_LENGTHS, focal_lengths, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_AVAIL_APERTURES, apertures, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_MAX_FACE_COUNT, max_face_count, 1);
+    fn_add_meta(m, MIUI_SENSOR_INFO_EXPOSURE_RANGE, exposure_range, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_SENSITIVITY_RANGE, sensitivity_range, 2);
 
     /* Scaler: processed sizes, JPEG sizes, min durations */
     int32_t processed_sizes[] = {2592, 1944, 1920, 1080, 1280, 720, 640, 480};
@@ -200,45 +257,45 @@ static camera_metadata_t *build_static_info(void)
     int64_t processed_min_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
     int64_t jpeg_min_dur[] = {33333333LL, 33333333LL};
 
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_PROCESSED_SIZES, processed_sizes, 8);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_JPEG_SIZES, jpeg_sizes, 4);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_PROCESSED_MIN_DURATIONS, processed_min_dur, 4);
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_JPEG_MIN_DURATIONS, jpeg_min_dur, 2);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_SIZES, processed_sizes, 8);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_SIZES, jpeg_sizes, 4);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_PROC_MIN_DUR, processed_min_dur, 4);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_JPEG_MIN_DUR, jpeg_min_dur, 2);
 
     /* JPEG thumbnail sizes */
     int32_t thumb_sizes[] = {0, 0, 160, 120, 320, 240};
-    fn_add_meta(m, ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES, thumb_sizes, 6);
+    fn_add_meta(m, MIUI_JPEG_AVAIL_THUMB_SIZES, thumb_sizes, 6);
 
     /* Flash */
     uint8_t flash_available = 0;
-    fn_add_meta(m, ANDROID_FLASH_INFO_AVAILABLE, &flash_available, 1);
+    fn_add_meta(m, MIUI_FLASH_INFO_AVAILABLE, &flash_available, 1);
 
     /* Video stabilization */
     uint8_t vstab_modes[] = {0}; /* OFF */
-    fn_add_meta(m, NV_ANDROID_CONTROL_AVAILABLE_VIDEO_STAB_MODES, vstab_modes, 1);
+    fn_add_meta(m, MIUI_CONTROL_AVAIL_VSTAB_MODES, vstab_modes, 1);
 
     /* Max digital zoom */
     float max_zoom = 1.0f;
-    fn_add_meta(m, ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM, &max_zoom, 1);
+    fn_add_meta(m, MIUI_SCALER_AVAIL_MAX_DIGITAL_ZOOM, &max_zoom, 1);
 
     /* Physical sensor size (mm) — OV5693 1/4" approx */
     float physical_size[] = {3.67f, 2.74f};
-    fn_add_meta(m, ANDROID_SENSOR_INFO_PHYSICAL_SIZE, physical_size, 2);
+    fn_add_meta(m, MIUI_SENSOR_INFO_PHYSICAL_SIZE, physical_size, 2);
 
     /* Face detect */
     uint8_t face_detect_modes[] = {0}; /* OFF */
-    fn_add_meta(m, ANDROID_STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES, face_detect_modes, 1);
+    fn_add_meta(m, MIUI_STATS_INFO_AVAIL_FACE_DETECT, face_detect_modes, 1);
 
     /* Lens */
     float min_focus_dist = 0.0f; /* fixed focus */
-    fn_add_meta(m, ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE, &min_focus_dist, 1);
+    fn_add_meta(m, MIUI_LENS_INFO_MIN_FOCUS_DISTANCE, &min_focus_dist, 1);
 
     /* JPEG max size */
     int32_t jpeg_max_size = 2592 * 1944 * 3 / 2 + 65536; /* NV12 + overhead */
-    fn_add_meta(m, ANDROID_JPEG_MAX_SIZE, &jpeg_max_size, 1);
+    fn_add_meta(m, MIUI_JPEG_MAX_SIZE, &jpeg_max_size, 1);
 
     /* Hardware level */
-    fn_add_meta(m, ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL, &hw_level, 1);
+    fn_add_meta(m, MIUI_INFO_HW_LEVEL, &hw_level, 1);
 
     (void)avail_stream_configs; (void)min_frame_durations;
     (void)stall_durations; (void)avail_caps;
@@ -254,15 +311,15 @@ static camera_metadata_t *build_default_request(void)
     camera_metadata_t *m = fn_alloc_meta(10, 128);
     if (!m) return NULL;
 
-    uint8_t intent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
-    uint8_t mode = ANDROID_CONTROL_MODE_AUTO;
-    uint8_t ae_mode = ANDROID_CONTROL_AE_MODE_ON;
-    uint8_t awb_mode = ANDROID_CONTROL_AWB_MODE_AUTO;
+    uint8_t intent = 1; /* PREVIEW */
+    uint8_t mode = 1;   /* AUTO */
+    uint8_t ae_mode = 1; /* ON */
+    uint8_t awb_mode = 1; /* AUTO */
 
-    fn_add_meta(m, ANDROID_CONTROL_CAPTURE_INTENT, &intent, 1);
-    fn_add_meta(m, ANDROID_CONTROL_MODE, &mode, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AE_MODE, &ae_mode, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AWB_MODE, &awb_mode, 1);
+    fn_add_meta(m, MIUI_CONTROL_CAPTURE_INTENT, &intent, 1);
+    fn_add_meta(m, MIUI_CONTROL_MODE, &mode, 1);
+    fn_add_meta(m, MIUI_CONTROL_AE_MODE, &ae_mode, 1);
+    fn_add_meta(m, MIUI_CONTROL_AWB_MODE, &awb_mode, 1);
 
     return m;
 }
@@ -278,9 +335,9 @@ static camera_metadata_t *build_result_meta(uint32_t frame_number)
     uint8_t ae_state = 2; /* CONVERGED */
     uint8_t awb_state = 2;
 
-    fn_add_meta(m, ANDROID_SENSOR_TIMESTAMP, &timestamp, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AE_STATE, &ae_state, 1);
-    fn_add_meta(m, ANDROID_CONTROL_AWB_STATE, &awb_state, 1);
+    fn_add_meta(m, MIUI_SENSOR_TIMESTAMP, &timestamp, 1);
+    fn_add_meta(m, MIUI_CONTROL_AE_STATE, &ae_state, 1);
+    fn_add_meta(m, MIUI_CONTROL_AWB_STATE, &awb_state, 1);
 
     return m;
 }
