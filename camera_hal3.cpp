@@ -474,33 +474,41 @@ static int alloc_nvmm_surface(NvMMBuffer *nvmm, NvU32 buf_id, NvU32 w, NvU32 h)
 
     NvMMSurfaceDescriptor *desc = &nvmm->Payload.Surfaces;
 
-    /* Set up NV12 2-plane pitchlinear manually (avoid NvRmMultiplanarSurfaceSetup crash) */
+    /* Set up YV12 3-plane pitchlinear (stock HAL: "allocating YV12 for Zoom Stream") */
     NvRmSurface *s0 = &desc->Surfaces[0];
     NvRmSurface *s1 = &desc->Surfaces[1];
+    NvRmSurface *s2 = &desc->Surfaces[2];
+
+    NvU32 pitch = (w + 63) & ~63; /* 64-byte aligned pitch */
 
     /* Y plane */
     s0->Width = w;
     s0->Height = h;
     s0->ColorFormat = 0x08592004; /* NvColorFormat_Y8 */
     s0->Layout = NvRmSurfaceLayout_Pitch;
-    s0->Pitch = (w + 63) & ~63; /* 64-byte aligned pitch */
-    s0->Offset = 0;
+    s0->Pitch = pitch;
 
-    /* UV plane (NV12: U8_V8 interleaved) */
+    /* U plane */
     s1->Width = w / 2;
     s1->Height = h / 2;
-    s1->ColorFormat = 0x10580c0b; /* NvColorFormat_U8_V8 */
+    s1->ColorFormat = 0x08590404; /* NvColorFormat_U8 (computed) */
     s1->Layout = NvRmSurfaceLayout_Pitch;
-    s1->Pitch = s0->Pitch; /* same pitch as Y */
-    s1->Offset = 0;
+    s1->Pitch = pitch / 2;
 
-    desc->SurfaceCount = 2;
+    /* V plane */
+    s2->Width = w / 2;
+    s2->Height = h / 2;
+    s2->ColorFormat = 0x08582404; /* NvColorFormat_V8 (computed) */
+    s2->Layout = NvRmSurfaceLayout_Pitch;
+    s2->Pitch = pitch / 2;
+
+    desc->SurfaceCount = 3;
     desc->Empty = NV_TRUE;
 
     /* Allocate memory for each surface via NvRm */
     /* NvRmHeap enum: External=1, Carveout=2, IRAM=3, GART=4 */
     NvU32 heaps[] = { 2 /* Carveout */ };
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         NvRmSurface *s = &desc->Surfaces[i];
         NvU32 size = s->Pitch * s->Height;
         /* NvRmMemHandleAttr struct layout from nvrm_memmgr.h */
@@ -528,10 +536,9 @@ static int alloc_nvmm_surface(NvMMBuffer *nvmm, NvU32 buf_id, NvU32 w, NvU32 h)
         }
     }
 
-    FLOG("alloc_nvmm: id=%u %ux%u s0: fmt=0x%x pitch=%u hMem=%p s1: fmt=0x%x pitch=%u hMem=%p\n",
-         buf_id, w, h,
-         desc->Surfaces[0].ColorFormat, desc->Surfaces[0].Pitch, desc->Surfaces[0].hMem,
-         desc->Surfaces[1].ColorFormat, desc->Surfaces[1].Pitch, desc->Surfaces[1].hMem);
+    FLOG("alloc_nvmm: id=%u %ux%u YV12 pitch=%u hMem=%p/%p/%p\n",
+         buf_id, w, h, pitch,
+         desc->Surfaces[0].hMem, desc->Surfaces[1].hMem, desc->Surfaces[2].hMem);
 
     return 0;
 }
