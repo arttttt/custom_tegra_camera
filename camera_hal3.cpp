@@ -568,6 +568,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.FrameNumber = frame_num;
     req.NumOfOutputBuffers = 1;
     req.ppOutputBuffers = out_bufs;
+    req.FrameCaptureRequestId = (NvU64)(uintptr_t)out_copy.buffer;
     memcpy(req.FrameControlProps, ctx->default_ctrl_props,
            sizeof(req.FrameControlProps));
 
