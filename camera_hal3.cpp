@@ -628,7 +628,7 @@ static camera_metadata_t *g_static_info[NUM_CAMERAS];
 static int hal3_get_number_of_cameras(void)
 {
     if (!g_detect_done) {
-        g_logf = fopen("/data/camera_hal.log", "w");
+        g_logf = fopen("/data/camera_hal.log", "a");
         FLOG("=== Camera HAL3 init ===\n");
 
         if (load_libs() != 0) {
@@ -692,6 +692,7 @@ static int hal3_device_open(const hw_module_t *module, const char *id,
     if (!id || !device) return -EINVAL;
 
     int camera_id = atoi(id);
+    FLOG("device_open: id=%s camera_id=%d\n", id, camera_id);
     if (camera_id < 0 || camera_id >= NUM_CAMERAS) return -ENODEV;
 
     if (load_libs() != 0) return -ENODEV;
