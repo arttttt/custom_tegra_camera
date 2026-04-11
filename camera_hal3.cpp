@@ -377,8 +377,16 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
         }
     } else if (event_type == NvCameraCoreEvent_CompletedBuffer) {
         NvCameraCoreFrameCaptureResult *res = (NvCameraCoreFrameCaptureResult *)info;
-        FLOG("CompletedBuffer: frame %u, %u bufs\n",
-             res->FrameNumber, res->NumCompletedOutputBuffers);
+        FLOG("CompletedBuffer: frame %u, %u bufs pp=%p\n",
+             res->FrameNumber, res->NumCompletedOutputBuffers,
+             res->ppOutputBuffers);
+        if (res->ppOutputBuffers && res->NumCompletedOutputBuffers > 0) {
+            NvMMBuffer *outbuf = res->ppOutputBuffers[0];
+            FLOG("  outbuf: id=%u empty=%u hMem=%p\n",
+                 outbuf->BufferID,
+                 outbuf->Payload.Surfaces.Empty,
+                 outbuf->Payload.Surfaces.Surfaces[0].hMem);
+        }
         ctx->frame_done = 1;
     }
 
@@ -410,9 +418,14 @@ static int link_buffer(buffer_handle_t *buf, NvMMBuffer *nvmm, NvU32 buf_id)
     desc->SurfaceCount = surf_count;
     desc->Empty = NV_TRUE;
 
-    FLOG("link_buffer: id=%u surfs=%zu %ux%u fmt=0x%x pitch=%u hMem=%p\n",
+    FLOG("link_buffer: id=%u surfs=%zu %ux%u fmt=0x%x pitch=%u layout=%u kind=%u bh=%u hMem=%p\n",
          buf_id, surf_count, surfs[0].Width, surfs[0].Height,
-         surfs[0].ColorFormat, surfs[0].Pitch, surfs[0].hMem);
+         surfs[0].ColorFormat, surfs[0].Pitch, surfs[0].Layout,
+         surfs[0].Kind, surfs[0].BlockHeightLog2, surfs[0].hMem);
+    if (surf_count > 1)
+        FLOG("  surf[1]: %ux%u fmt=0x%x pitch=%u layout=%u\n",
+             surfs[1].Width, surfs[1].Height,
+             surfs[1].ColorFormat, surfs[1].Pitch, surfs[1].Layout);
 
     return 0;
 }
