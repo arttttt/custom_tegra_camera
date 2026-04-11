@@ -25,7 +25,7 @@ LOCAL_C_INCLUDES := \
 
 LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
 LOCAL_LDFLAGS := -Wl,--hash-style=sysv
-LOCAL_NDK_STL_VARIANT := gnustl_shared
+LOCAL_NDK_STL_VARIANT := none
 LOCAL_SDK_VERSION := 19
 
 include $(BUILD_SHARED_LIBRARY)
