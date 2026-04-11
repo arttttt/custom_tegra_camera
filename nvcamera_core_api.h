@@ -200,7 +200,8 @@ typedef struct {
  *   NvCamProperty_Public_Dynamic  = unknown (PartialResult info_size=57744 includes more)
  * These MUST match the stock blob layout exactly.
  */
-#define NVCAM_CONTROLS_SIZE 820
+#define NVCAM_CONTROLS_SIZE  820   /* measured via pattern-fill on MIUI 4.4 blobs */
+#define NVCAM_DYNAMIC_SIZE   57732 /* info_size(57744) - FrameNumber(4) - Num(4) - pp(4) */
 
 typedef struct {
     NvU32 FrameNumber;
@@ -215,7 +216,7 @@ typedef struct {
 /* Frame capture result — passed in CompletedBuffer callback info */
 typedef struct {
     NvU32 FrameNumber;
-    uint8_t FrameDynamicProps[57744]; /* measured from PartialResult info_size */
+    uint8_t FrameDynamicProps[NVCAM_DYNAMIC_SIZE];
     NvU32 NumCompletedOutputBuffers;
     NvMMBuffer **ppOutputBuffers;
 } NvCameraCoreFrameCaptureResult;

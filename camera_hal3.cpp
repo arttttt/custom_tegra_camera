@@ -441,7 +441,8 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* Test: NV21 to isolate crash — is it format-specific or any output? */
+        /* JXD stock HAL maps IMPLEMENTATION_DEFINED → YV12.
+         * NV21 also works. YV12 crashes (needs investigation). Using NV21 for now. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
             s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
         s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
