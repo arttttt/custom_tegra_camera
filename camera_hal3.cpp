@@ -440,9 +440,9 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         if (!s) continue;
 
         /* NVIDIA gralloc can't allocate IMPLEMENTATION_DEFINED with camera usage.
-         * Override to NV21 (YCrCb_420_SP) which NVIDIA gralloc knows. */
+         * Override to YV12 (0x32b) which is NVIDIA's preferred planar YUV. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
-            s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
+            s->format = 0x32b; /* HAL_PIXEL_FORMAT_YV12 */
         s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
         s->max_buffers = 4;
 
@@ -585,7 +585,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
 
     /* Wait for CompletedBuffer (max 500ms) */
     int wait_ms = 0;
-    while (!ctx->frame_done && wait_ms < 5000) {
+    while (!ctx->frame_done && wait_ms < 500) {
         usleep(1000);
         wait_ms++;
     }
