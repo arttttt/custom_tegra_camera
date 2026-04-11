@@ -432,8 +432,8 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
-        s->max_buffers = 4;
+        s->usage = GRALLOC_USAGE_HW_CAMERA_WRITE;
+        s->max_buffers = 3;
 
         FLOG("  stream[%d]: %dx%d fmt=0x%x type=%d\n",
              i, s->width, s->height, s->format, s->stream_type);
