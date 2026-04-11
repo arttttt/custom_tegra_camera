@@ -461,10 +461,10 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* YV12 (3-plane YCrCb 4:2:0) — matches JXD stock HAL.
-         * Force SW_READ to request pitchlinear layout (NvCameraCore needs pitch, not blocklinear). */
+        /* NV21 (2-plane YCrCb 4:2:0). YV12 crashes in NvViCsi.
+         * Buffers are blocklinear — checking if ISP writes to nvmap directly. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
-            s->format = HAL_PIXEL_FORMAT_YV12;
+            s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
         s->usage = GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_SW_READ_OFTEN;
         s->max_buffers = 4;
 
@@ -623,24 +623,50 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
          frame_num, ctx->frame_done, (int)(ctx->shutter_timestamp != 0), wait_ms);
 
     /* Save first frame raw data to disk for debugging */
-    if (frame_num == 0 && ctx->frame_done && g_gralloc) {
-        int w = ctx->stream.stream->width;
-        int h = ctx->stream.stream->height;
-        void *pixels = NULL;
-        int lock_err = g_gralloc->lock(g_gralloc, *out_copy.buffer,
-                                        GRALLOC_USAGE_SW_READ_OFTEN,
-                                        0, 0, w, h, &pixels);
-        FLOG("gralloc lock -> %d pixels=%p\n", lock_err, pixels);
-        if (lock_err == 0 && pixels) {
-            /* NV21: Y plane = w*h, VU plane = w*h/2 */
-            int total = w * h * 3 / 2;
-            FILE *f = fopen("/data/frame0.nv21", "wb");
+    if (frame_num == 0 && ctx->frame_done) {
+        /* Read NvRmSurface directly — check if ISP wrote to nvmap memory */
+        const NvRmSurface *surfs = NULL;
+        size_t surf_count = 0;
+        fn_nvgr_get_surfaces((void *)*out_copy.buffer, &surfs, &surf_count);
+
+        if (surfs && surf_count > 0 && surfs[0].pBase) {
+            /* pBase is already mapped — read directly */
+            int w = surfs[0].Width;
+            int h = surfs[0].Height;
+            int pitch = surfs[0].Pitch;
+            int total = pitch * h; /* just Y plane for now */
+            FLOG("frame0: pBase=%p w=%d h=%d pitch=%d total=%d\n",
+                 surfs[0].pBase, w, h, pitch, total);
+            FILE *f = fopen("/data/frame0_direct.raw", "wb");
             if (f) {
-                fwrite(pixels, 1, total, f);
+                fwrite(surfs[0].pBase, 1, total, f);
                 fclose(f);
-                FLOG("frame0: saved %dx%d NV21 (%d bytes)\n", w, h, total);
+                FLOG("frame0: saved direct %d bytes\n", total);
             }
-            g_gralloc->unlock(g_gralloc, *out_copy.buffer);
+        } else {
+            FLOG("frame0: pBase=%p surfs=%zu — trying gralloc lock\n",
+                 surfs ? surfs[0].pBase : NULL, surf_count);
+        }
+
+        /* Also try gralloc lock for comparison */
+        if (g_gralloc) {
+            int w = ctx->stream.stream->width;
+            int h = ctx->stream.stream->height;
+            void *pixels = NULL;
+            int lock_err = g_gralloc->lock(g_gralloc, *out_copy.buffer,
+                                            GRALLOC_USAGE_SW_READ_OFTEN,
+                                            0, 0, w, h, &pixels);
+            FLOG("gralloc lock -> %d pixels=%p\n", lock_err, pixels);
+            if (lock_err == 0 && pixels) {
+                int total = w * h * 3 / 2;
+                FILE *f = fopen("/data/frame0_gralloc.raw", "wb");
+                if (f) {
+                    fwrite(pixels, 1, total, f);
+                    fclose(f);
+                    FLOG("frame0: gralloc %d bytes\n", total);
+                }
+                g_gralloc->unlock(g_gralloc, *out_copy.buffer);
+            }
         }
     }
 
