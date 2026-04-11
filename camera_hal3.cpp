@@ -11,6 +11,7 @@
 #include <cutils/log.h>
 #include <hardware/camera3.h>
 #include <hardware/camera_common.h>
+#include <hardware/gralloc.h>
 #include <hardware/hardware.h>
 #include <system/camera_metadata.h>
 
@@ -53,6 +54,9 @@ static pfn_NvCameraCore_Flush                   fn_Flush;
 static pfn_NvCameraCore_GetDefaultControlProperties fn_GetDefaultCtrl;
 static pfn_NvMMCameraDeviceDetect               fn_DeviceDetect;
 static pfn_nvgr_get_surfaces                    fn_nvgr_get_surfaces;
+
+/* gralloc module for lock/unlock */
+static const gralloc_module_t *g_gralloc;
 
 /* camera_metadata — use dlsym at runtime (not linked directly due to SDK_VERSION=19) */
 typedef camera_metadata_t *(*pfn_allocate_camera_metadata)(size_t, size_t);
@@ -97,7 +101,13 @@ static int load_libs(void)
 
     if (!fn_Open || !fn_Close || !fn_FrameCaptureRequest) return -1;
 
-    ALOGI("NvCameraCore loaded (nvgr=%d meta=%d)", !!fn_nvgr_get_surfaces, !!fn_alloc_meta);
+    /* Load gralloc module for lock/unlock */
+    hw_module_t const *gralloc_hw = NULL;
+    if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &gralloc_hw) == 0)
+        g_gralloc = (const gralloc_module_t *)gralloc_hw;
+
+    ALOGI("NvCameraCore loaded (nvgr=%d meta=%d gralloc=%d)",
+          !!fn_nvgr_get_surfaces, !!fn_alloc_meta, !!g_gralloc);
     return 0;
 }
 
@@ -599,25 +609,24 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
          frame_num, ctx->frame_done, (int)(ctx->shutter_timestamp != 0), wait_ms);
 
     /* Save first frame raw data to disk for debugging */
-    if (frame_num == 0 && ctx->frame_done) {
-        /* Lock gralloc buffer and dump NV21 data */
-        FLOG("Saving frame 0 to /data/frame0.nv21\n");
-        /* NV21 2048x1536: Y=2048*1536 + VU=2048*1536/2 = 4718592 bytes */
-        /* Just write a marker file to confirm buffer is accessible */
-        FILE *f = fopen("/data/frame0.nv21", "wb");
-        if (f) {
-            /* Write surface info as header */
-            const NvRmSurface *surfs = NULL;
-            size_t surf_count = 0;
-            fn_nvgr_get_surfaces((void *)*out_copy.buffer, &surfs, &surf_count);
-            if (surfs && surf_count > 0) {
-                FLOG("frame0: surfs=%zu %ux%u pitch=%u hMem=%p\n",
-                     surf_count, surfs[0].Width, surfs[0].Height,
-                     surfs[0].Pitch, surfs[0].hMem);
+    if (frame_num == 0 && ctx->frame_done && g_gralloc) {
+        int w = ctx->stream.stream->width;
+        int h = ctx->stream.stream->height;
+        void *pixels = NULL;
+        int lock_err = g_gralloc->lock(g_gralloc, *out_copy.buffer,
+                                        GRALLOC_USAGE_SW_READ_OFTEN,
+                                        0, 0, w, h, &pixels);
+        FLOG("gralloc lock -> %d pixels=%p\n", lock_err, pixels);
+        if (lock_err == 0 && pixels) {
+            /* NV21: Y plane = w*h, VU plane = w*h/2 */
+            int total = w * h * 3 / 2;
+            FILE *f = fopen("/data/frame0.nv21", "wb");
+            if (f) {
+                fwrite(pixels, 1, total, f);
+                fclose(f);
+                FLOG("frame0: saved %dx%d NV21 (%d bytes)\n", w, h, total);
             }
-            fwrite("NV21", 4, 1, f);
-            fclose(f);
-            FLOG("frame0: saved marker\n");
+            g_gralloc->unlock(g_gralloc, *out_copy.buffer);
         }
     }
 
