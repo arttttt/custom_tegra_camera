@@ -33,6 +33,7 @@
 #define HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED 0x22
 #define GRALLOC_USAGE_HW_CAMERA_WRITE       0x00020000
 #define GRALLOC_USAGE_HW_CAMERA_READ        0x00010000
+#define GRALLOC_USAGE_SW_READ_OFTEN         0x00000003
 
 /* File-based log (logcat overflows with NvOsDebugPrintf spam) */
 static FILE *g_logf;
@@ -460,11 +461,11 @@ static int hal3_configure_streams(const camera3_device_t *dev,
         camera3_stream_t *s = config->streams[i];
         if (!s) continue;
 
-        /* JXD stock HAL maps IMPLEMENTATION_DEFINED → YV12.
-         * NV21 also works. YV12 crashes (needs investigation). Using NV21 for now. */
+        /* NV21 format with SW_READ to force pitchlinear layout.
+         * Blocklinear (layout=3) buffers are not written by NvCameraCore ISP. */
         if (s->format == HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED)
             s->format = HAL_PIXEL_FORMAT_YCrCb_420_SP;
-        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE;
+        s->usage |= GRALLOC_USAGE_HW_CAMERA_WRITE | GRALLOC_USAGE_SW_READ_OFTEN;
         s->max_buffers = 4;
 
         FLOG("  stream[%d]: %dx%d fmt=0x%x type=%d\n",
