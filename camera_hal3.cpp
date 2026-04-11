@@ -332,6 +332,9 @@ struct camera_context {
     struct stream_context        stream;
     int                          stream_configured;
 
+    /* Default control properties from NvCameraCore */
+    uint8_t                      default_ctrl_props[4096];
+
     /* Pending frame tracking */
     volatile uint32_t            pending_frame;
     volatile int                 frame_done;
@@ -563,6 +566,8 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.FrameNumber = frame_num;
     req.NumOfOutputBuffers = 1;
     req.ppOutputBuffers = out_bufs;
+    memcpy(req.FrameControlProps, ctx->default_ctrl_props,
+           sizeof(req.FrameControlProps));
 
     ctx->frame_done = 0;
     NvError err = fn_FrameCaptureRequest(ctx->core_handle, &req);
@@ -734,6 +739,14 @@ static int hal3_device_open(const hw_module_t *module, const char *id,
     }
 
     fn_Callback(ctx->core_handle, ctx, nvcamera_callback);
+
+    /* Get default 3A/control properties — required for FrameCaptureRequest */
+    if (fn_GetDefaultCtrl) {
+        memset(ctx->default_ctrl_props, 0, sizeof(ctx->default_ctrl_props));
+        NvError ctrl_err = fn_GetDefaultCtrl(ctx->core_handle, 1 /* PREVIEW */,
+                                              ctx->default_ctrl_props);
+        FLOG("GetDefaultControlProperties -> %d\n", ctrl_err);
+    }
 
     dev->common.tag = HARDWARE_DEVICE_TAG;
     dev->common.version = CAMERA_DEVICE_API_VERSION_3_0;
