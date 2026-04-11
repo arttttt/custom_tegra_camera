@@ -723,11 +723,8 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.FrameCaptureRequestId = 0; /* 0 = not a reprocessing request (JXD docs) */
     memcpy(req.FrameControlProps, ctx->default_ctrl_props,
            sizeof(req.FrameControlProps));
-    /* Crop region = full sensor area (required for ISP scaler) */
-    req.crop_rect.left = 0;
-    req.crop_rect.top = 0;
-    req.crop_rect.right = 2592;
-    req.crop_rect.bottom = 1944;
+    /* crop_rect left as {0,0,0,0} from memset — JXD and stock HAL both leave it zero.
+     * {0,0,0,0} = full frame / no crop. Non-zero may trigger different ISP path. */
 
     ctx->frame_done = 0;
     ctx->shutter_timestamp = 0;
