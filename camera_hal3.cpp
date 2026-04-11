@@ -335,10 +335,10 @@ struct camera_context {
     /* Default control properties from NvCameraCore */
     uint8_t                      default_ctrl_props[NVCAM_CONTROLS_SIZE];
 
-    /* Pending frame — saved for async result delivery from callbacks */
-    camera3_stream_buffer_t      pending_out_buf;
-    volatile int                 has_pending;
-    volatile int64_t             shutter_timestamp;
+    /* Pending frames — saved for async result delivery from callbacks */
+    camera3_stream_buffer_t      pending_bufs[MAX_BUFFERS];
+    volatile int                 pending_valid[MAX_BUFFERS];
+    volatile int64_t             shutter_ts[MAX_BUFFERS];
 };
 
 /* -------------------------------------------------------------------------- */
@@ -351,12 +351,14 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
     struct camera_context *ctx = (struct camera_context *)ctx_ptr;
     (void)info_size;
 
+    FLOG("cb: ev=%u sz=%u\n", event_type, info_size);
+
     if (event_type == NvCameraCoreEvent_Shutter) {
         NvCameraCoreShutterEventInfo *shutter = (NvCameraCoreShutterEventInfo *)info;
-        ctx->shutter_timestamp = (int64_t)shutter->Timestamp;
+        int slot = shutter->FrameNumber % MAX_BUFFERS;
+        ctx->shutter_ts[slot] = (int64_t)shutter->Timestamp;
         FLOG("Shutter: frame %u ts=%llu\n", shutter->FrameNumber,
              (unsigned long long)shutter->Timestamp);
-        /* Notify framework about shutter — MUST come before result */
         if (ctx->callback_ops) {
             camera3_notify_msg_t msg;
             memset(&msg, 0, sizeof(msg));
@@ -367,25 +369,25 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
         }
     } else if (event_type == NvCameraCoreEvent_CompletedBuffer) {
         NvCameraCoreFrameCaptureResult *res = (NvCameraCoreFrameCaptureResult *)info;
+        int slot = res->FrameNumber % MAX_BUFFERS;
         FLOG("CompletedBuffer: frame %u, %u bufs\n",
              res->FrameNumber, res->NumCompletedOutputBuffers);
 
-        /* Send result to framework asynchronously */
-        if (ctx->callback_ops && ctx->has_pending) {
+        if (ctx->callback_ops && ctx->pending_valid[slot]) {
             camera3_capture_result_t result;
             memset(&result, 0, sizeof(result));
             result.frame_number = res->FrameNumber;
             result.num_output_buffers = 1;
 
-            camera3_stream_buffer_t out = ctx->pending_out_buf;
+            camera3_stream_buffer_t out = ctx->pending_bufs[slot];
             out.status = CAMERA3_BUFFER_STATUS_OK;
             out.release_fence = -1;
             result.output_buffers = &out;
-            result.result = build_result_meta(ctx->shutter_timestamp);
+            result.result = build_result_meta(ctx->shutter_ts[slot]);
 
             ctx->callback_ops->process_capture_result(ctx->callback_ops, &result);
             if (result.result) free((void *)result.result);
-            ctx->has_pending = 0;
+            ctx->pending_valid[slot] = 0;
         }
     }
 
@@ -593,8 +595,9 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.crop_rect.bottom = 1944;
 
     /* Save output buffer for async result delivery in callback */
-    ctx->pending_out_buf = out_copy;
-    ctx->has_pending = 1;
+    int slot = frame_num % MAX_BUFFERS;
+    ctx->pending_bufs[slot] = out_copy;
+    ctx->pending_valid[slot] = 1;
 
     NvError err = fn_FrameCaptureRequest(ctx->core_handle, &req);
 
@@ -603,7 +606,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
 
     if (err != NvSuccess) {
         FLOG("FrameCaptureRequest FAILED: %d\n", err);
-        ctx->has_pending = 0;
+        ctx->pending_valid[slot] = 0;
         return -EIO;
     }
 
