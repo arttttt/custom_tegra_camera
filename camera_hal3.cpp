@@ -56,6 +56,17 @@ static pfn_NvCameraCore_GetDefaultControlProperties fn_GetDefaultCtrl;
 static pfn_NvMMCameraDeviceDetect               fn_DeviceDetect;
 static pfn_nvgr_get_surfaces                    fn_nvgr_get_surfaces;
 
+/* NvRm functions for direct nvmap access (loaded from libnvrm.so) */
+typedef int (*pfn_NvRmMemMap)(void *hMem, NvU32 offset, NvU32 size, NvU32 flags, void **pVirtAddr);
+typedef void (*pfn_NvRmMemUnmap)(void *hMem, void *pVirtAddr, NvU32 size);
+typedef int (*pfn_NvRmMemCacheSyncForCpu)(void *hMem, void *pVirtAddr, NvU32 size);
+typedef NvU32 (*pfn_NvRmSurfaceComputeSize)(const NvRmSurface *surf);
+
+static pfn_NvRmMemMap fn_NvRmMemMap;
+static pfn_NvRmMemUnmap fn_NvRmMemUnmap;
+static pfn_NvRmMemCacheSyncForCpu fn_NvRmMemCacheSyncForCpu;
+static pfn_NvRmSurfaceComputeSize fn_NvRmSurfaceComputeSize;
+
 /* gralloc module for lock/unlock */
 static const gralloc_module_t *g_gralloc;
 
@@ -101,6 +112,15 @@ static int load_libs(void)
 #undef LSYM
 
     if (!fn_Open || !fn_Close || !fn_FrameCaptureRequest) return -1;
+
+    /* Load NvRm functions for direct nvmap access */
+    void *nvrm_lib = dlopen("libnvrm.so", RTLD_NOW);
+    if (nvrm_lib) {
+        fn_NvRmMemMap = (pfn_NvRmMemMap)dlsym(nvrm_lib, "NvRmMemMap");
+        fn_NvRmMemUnmap = (pfn_NvRmMemUnmap)dlsym(nvrm_lib, "NvRmMemUnmap");
+        fn_NvRmMemCacheSyncForCpu = (pfn_NvRmMemCacheSyncForCpu)dlsym(nvrm_lib, "NvRmMemCacheSyncForCpu");
+        fn_NvRmSurfaceComputeSize = (pfn_NvRmSurfaceComputeSize)dlsym(nvrm_lib, "NvRmSurfaceComputeSize");
+    }
 
     /* Load gralloc module for lock/unlock */
     hw_module_t const *gralloc_hw = NULL;
@@ -632,50 +652,40 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     FLOG("frame %u done=%d shutter=%d wait=%dms\n",
          frame_num, ctx->frame_done, (int)(ctx->shutter_timestamp != 0), wait_ms);
 
-    /* Save first frame raw data to disk for debugging */
-    if (frame_num == 0 && ctx->frame_done) {
-        /* Read NvRmSurface directly — check if ISP wrote to nvmap memory */
+    /* Save first frame via NvRmMemMap (like stock MIPreview::MapSurface) */
+    if (frame_num == 0 && ctx->frame_done && fn_NvRmMemMap && fn_NvRmSurfaceComputeSize) {
         const NvRmSurface *surfs = NULL;
         size_t surf_count = 0;
         fn_nvgr_get_surfaces((void *)*out_copy.buffer, &surfs, &surf_count);
 
-        if (surfs && surf_count > 0 && surfs[0].pBase) {
-            /* pBase is already mapped — read directly */
-            int w = surfs[0].Width;
-            int h = surfs[0].Height;
-            int pitch = surfs[0].Pitch;
-            int total = pitch * h; /* just Y plane for now */
-            FLOG("frame0: pBase=%p w=%d h=%d pitch=%d total=%d\n",
-                 surfs[0].pBase, w, h, pitch, total);
-            FILE *f = fopen("/data/frame0_direct.raw", "wb");
-            if (f) {
-                fwrite(surfs[0].pBase, 1, total, f);
-                fclose(f);
-                FLOG("frame0: saved direct %d bytes\n", total);
-            }
-        } else {
-            FLOG("frame0: pBase=%p surfs=%zu — trying gralloc lock\n",
-                 surfs ? surfs[0].pBase : NULL, surf_count);
-        }
+        if (surfs && surf_count > 0) {
+            NvU32 size0 = fn_NvRmSurfaceComputeSize(&surfs[0]);
+            void *mapped = NULL;
+            int err = fn_NvRmMemMap(surfs[0].hMem, surfs[0].Offset, size0, 0x23, &mapped);
+            FLOG("NvRmMemMap: hMem=%p off=%u size=%u -> %d mapped=%p\n",
+                 surfs[0].hMem, surfs[0].Offset, size0, err, mapped);
 
-        /* Also try gralloc lock for comparison */
-        if (g_gralloc) {
-            int w = ctx->stream.stream->width;
-            int h = ctx->stream.stream->height;
-            void *pixels = NULL;
-            int lock_err = g_gralloc->lock(g_gralloc, *out_copy.buffer,
-                                            GRALLOC_USAGE_SW_READ_OFTEN,
-                                            0, 0, w, h, &pixels);
-            FLOG("gralloc lock -> %d pixels=%p\n", lock_err, pixels);
-            if (lock_err == 0 && pixels) {
-                int total = w * h * 3 / 2;
-                FILE *f = fopen("/data/frame0_gralloc.raw", "wb");
-                if (f) {
-                    fwrite(pixels, 1, total, f);
-                    fclose(f);
-                    FLOG("frame0: gralloc %d bytes\n", total);
+            if (err == 0 && mapped) {
+                if (fn_NvRmMemCacheSyncForCpu)
+                    fn_NvRmMemCacheSyncForCpu(surfs[0].hMem, mapped, size0);
+
+                /* Check first bytes */
+                uint8_t *p = (uint8_t *)mapped;
+                int non_init = 0;
+                NvU32 check = size0 > 65536 ? 65536 : size0;
+                for (NvU32 i = 0; i < check; i++) {
+                    if (p[i] != 0x10 && p[i] != 0x80 && p[i] != 0) non_init++;
                 }
-                g_gralloc->unlock(g_gralloc, *out_copy.buffer);
+                FLOG("frame0: first %u bytes: non_init=%d (first=%02x)\n",
+                     check, non_init, p[0]);
+
+                FILE *f = fopen("/data/frame0_nvmap.raw", "wb");
+                if (f) {
+                    fwrite(mapped, 1, size0, f);
+                    fclose(f);
+                    FLOG("frame0: saved nvmap %u bytes\n", size0);
+                }
+                fn_NvRmMemUnmap(surfs[0].hMem, mapped, size0);
             }
         }
     }
