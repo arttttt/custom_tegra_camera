@@ -383,10 +383,20 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
              res->ppOutputBuffers);
         if (res->ppOutputBuffers && res->NumCompletedOutputBuffers > 0) {
             NvMMBuffer *outbuf = res->ppOutputBuffers[0];
-            FLOG("  outbuf: id=%u empty=%u hMem=%p\n",
-                 outbuf->BufferID,
-                 outbuf->Payload.Surfaces.Empty,
-                 outbuf->Payload.Surfaces.Surfaces[0].hMem);
+            NvRmSurface *s0 = &outbuf->Payload.Surfaces.Surfaces[0];
+            FLOG("  outbuf=%p id=%u pt=%u ss=%u empty=%u sc=%d\n",
+                 outbuf, outbuf->BufferID, outbuf->PayloadType,
+                 outbuf->StructSize, outbuf->Payload.Surfaces.Empty,
+                 outbuf->Payload.Surfaces.SurfaceCount);
+            FLOG("  s0: %ux%u fmt=0x%x layout=%u pitch=%u hMem=%p off=%u pBase=%p\n",
+                 s0->Width, s0->Height, s0->ColorFormat, s0->Layout,
+                 s0->Pitch, s0->hMem, s0->Offset, s0->pBase);
+            if (outbuf->Payload.Surfaces.SurfaceCount > 1) {
+                NvRmSurface *s1 = &outbuf->Payload.Surfaces.Surfaces[1];
+                FLOG("  s1: %ux%u fmt=0x%x layout=%u pitch=%u hMem=%p off=%u pBase=%p\n",
+                     s1->Width, s1->Height, s1->ColorFormat, s1->Layout,
+                     s1->Pitch, s1->hMem, s1->Offset, s1->pBase);
+            }
         }
         ctx->frame_done = 1;
     }
