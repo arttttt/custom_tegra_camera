@@ -335,10 +335,9 @@ struct camera_context {
     /* Default control properties from NvCameraCore */
     uint8_t                      default_ctrl_props[NVCAM_CONTROLS_SIZE];
 
-    /* Pending frames — saved for async result delivery from callbacks */
-    camera3_stream_buffer_t      pending_bufs[MAX_BUFFERS];
-    volatile int                 pending_valid[MAX_BUFFERS];
-    volatile int64_t             shutter_ts[MAX_BUFFERS];
+    /* Sync frame tracking */
+    volatile int                 frame_done;
+    volatile int64_t             shutter_timestamp;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -355,8 +354,7 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
 
     if (event_type == NvCameraCoreEvent_Shutter) {
         NvCameraCoreShutterEventInfo *shutter = (NvCameraCoreShutterEventInfo *)info;
-        int slot = shutter->FrameNumber % MAX_BUFFERS;
-        ctx->shutter_ts[slot] = (int64_t)shutter->Timestamp;
+        ctx->shutter_timestamp = (int64_t)shutter->Timestamp;
         FLOG("Shutter: frame %u ts=%llu\n", shutter->FrameNumber,
              (unsigned long long)shutter->Timestamp);
         if (ctx->callback_ops) {
@@ -369,26 +367,9 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
         }
     } else if (event_type == NvCameraCoreEvent_CompletedBuffer) {
         NvCameraCoreFrameCaptureResult *res = (NvCameraCoreFrameCaptureResult *)info;
-        int slot = res->FrameNumber % MAX_BUFFERS;
         FLOG("CompletedBuffer: frame %u, %u bufs\n",
              res->FrameNumber, res->NumCompletedOutputBuffers);
-
-        if (ctx->callback_ops && ctx->pending_valid[slot]) {
-            camera3_capture_result_t result;
-            memset(&result, 0, sizeof(result));
-            result.frame_number = res->FrameNumber;
-            result.num_output_buffers = 1;
-
-            camera3_stream_buffer_t out = ctx->pending_bufs[slot];
-            out.status = CAMERA3_BUFFER_STATUS_OK;
-            out.release_fence = -1;
-            result.output_buffers = &out;
-            result.result = build_result_meta(ctx->shutter_ts[slot]);
-
-            ctx->callback_ops->process_capture_result(ctx->callback_ops, &result);
-            if (result.result) free((void *)result.result);
-            ctx->pending_valid[slot] = 0;
-        }
+        ctx->frame_done = 1;
     }
 
     return NvSuccess;
@@ -594,10 +575,8 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.crop_rect.right = 2592;
     req.crop_rect.bottom = 1944;
 
-    /* Save output buffer for async result delivery in callback */
-    int slot = frame_num % MAX_BUFFERS;
-    ctx->pending_bufs[slot] = out_copy;
-    ctx->pending_valid[slot] = 1;
+    ctx->frame_done = 0;
+    ctx->shutter_timestamp = 0;
 
     NvError err = fn_FrameCaptureRequest(ctx->core_handle, &req);
 
@@ -606,9 +585,56 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
 
     if (err != NvSuccess) {
         FLOG("FrameCaptureRequest FAILED: %d\n", err);
-        ctx->pending_valid[slot] = 0;
         return -EIO;
     }
+
+    /* Wait for Shutter + CompletedBuffer (max 1000ms) */
+    int wait_ms = 0;
+    while ((!ctx->frame_done || !ctx->shutter_timestamp) && wait_ms < 1000) {
+        usleep(1000);
+        wait_ms++;
+    }
+
+    FLOG("frame %u done=%d shutter=%d wait=%dms\n",
+         frame_num, ctx->frame_done, (int)(ctx->shutter_timestamp != 0), wait_ms);
+
+    /* Save first frame raw data to disk for debugging */
+    if (frame_num == 0 && ctx->frame_done) {
+        /* Lock gralloc buffer and dump NV21 data */
+        FLOG("Saving frame 0 to /data/frame0.nv21\n");
+        /* NV21 2048x1536: Y=2048*1536 + VU=2048*1536/2 = 4718592 bytes */
+        /* Just write a marker file to confirm buffer is accessible */
+        FILE *f = fopen("/data/frame0.nv21", "wb");
+        if (f) {
+            /* Write surface info as header */
+            const NvRmSurface *surfs = NULL;
+            size_t surf_count = 0;
+            fn_nvgr_get_surfaces((void *)*out_copy.buffer, &surfs, &surf_count);
+            if (surfs && surf_count > 0) {
+                FLOG("frame0: surfs=%zu %ux%u pitch=%u hMem=%p\n",
+                     surf_count, surfs[0].Width, surfs[0].Height,
+                     surfs[0].Pitch, surfs[0].hMem);
+            }
+            fwrite("NV21", 4, 1, f);
+            fclose(f);
+            FLOG("frame0: saved marker\n");
+        }
+    }
+
+    /* Return result to framework */
+    camera3_capture_result_t result;
+    memset(&result, 0, sizeof(result));
+    result.frame_number = frame_num;
+    result.num_output_buffers = 1;
+
+    camera3_stream_buffer_t result_buf = out_copy;
+    result_buf.status = ctx->frame_done ? CAMERA3_BUFFER_STATUS_OK : CAMERA3_BUFFER_STATUS_ERROR;
+    result_buf.release_fence = -1;
+    result.output_buffers = &result_buf;
+    result.result = build_result_meta(ctx->shutter_timestamp);
+
+    ctx->callback_ops->process_capture_result(ctx->callback_ops, &result);
+    if (result.result) free((void *)result.result);
 
     return 0;
 }
