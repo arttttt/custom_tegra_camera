@@ -293,14 +293,13 @@ static camera_metadata_t *build_default_request(void)
     return m;
 }
 
-static camera_metadata_t *build_result_meta(uint32_t frame_number)
+static camera_metadata_t *build_result_meta(int64_t timestamp)
 {
     if (!fn_alloc_meta || !fn_add_meta) return NULL;
 
     camera_metadata_t *m = fn_alloc_meta(5, 64);
     if (!m) return NULL;
 
-    int64_t timestamp = frame_number * 33333333LL;
     uint8_t ae_state = 2; /* CONVERGED */
     uint8_t awb_state = 2;
 
@@ -340,6 +339,7 @@ struct camera_context {
     volatile uint32_t            pending_frame;
     volatile int                 frame_done;
     NvMMBuffer                  *completed_buffer;
+    volatile int64_t             shutter_timestamp;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -365,6 +365,7 @@ static NvError nvcamera_callback(void *ctx_ptr, NvU32 event_type,
         ctx->frame_done = 1;
     } else if (event_type == NvCameraCoreEvent_Shutter) {
         NvCameraCoreShutterEventInfo *shutter = (NvCameraCoreShutterEventInfo *)info;
+        ctx->shutter_timestamp = (int64_t)shutter->Timestamp;
         /* Notify framework about shutter */
         if (ctx->callback_ops) {
             camera3_notify_msg_t msg;
@@ -611,7 +612,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     result_buf.release_fence = -1;
     result.output_buffers = &result_buf;
 
-    result.result = build_result_meta(frame_num);
+    result.result = build_result_meta(ctx->shutter_timestamp);
 
     ctx->callback_ops->process_capture_result(ctx->callback_ops, &result);
 
