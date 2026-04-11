@@ -461,7 +461,10 @@ static const camera_metadata_t *hal3_construct_default_request_settings(
     static camera_metadata_t *s_default = NULL;
     (void)dev; (void)type;
 
-    if (!s_default) s_default = build_default_request();
+    if (!s_default) {
+        s_default = build_default_request();
+        FLOG("construct_default_request_settings: type=%d result=%p\n", type, s_default);
+    }
     return s_default;
 }
 
