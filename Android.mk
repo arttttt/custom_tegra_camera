@@ -6,6 +6,9 @@ LOCAL_MODULE := camera.tegra
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE_TAGS := optional
 
+# Set to false for AOSP/LineageOS CameraService
+MIUI_CAMERA_SERVICE ?= true
+
 LOCAL_SRC_FILES := camera_hal3.cpp
 
 ifeq ($(MIUI_CAMERA_SERVICE),true)
@@ -28,9 +31,6 @@ LOCAL_C_INCLUDES := \
     hardware/libhardware/include \
     frameworks/native/include \
     frameworks/av/include
-
-# Set MIUI_CAMERA_SERVICE=true for stock Xiaomi firmware
-MIUI_CAMERA_SERVICE ?= true
 
 LOCAL_CFLAGS := -Wall -Wextra -Wno-unused-parameter
 LOCAL_LDFLAGS := -Wl,--hash-style=sysv
