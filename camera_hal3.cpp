@@ -334,7 +334,7 @@ struct camera_context {
     int                          stream_configured;
 
     /* Default control properties from NvCameraCore */
-    uint8_t                      default_ctrl_props[4096];
+    uint8_t                      default_ctrl_props[NVCAM_CONTROLS_SIZE];
 
     /* Pending frame tracking */
     volatile uint32_t            pending_frame;
@@ -570,7 +570,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
     req.FrameNumber = frame_num;
     req.NumOfOutputBuffers = 1;
     req.ppOutputBuffers = out_bufs;
-    req.FrameCaptureRequestId = (NvU64)(uintptr_t)out_copy.buffer;
+    req.FrameCaptureRequestId = 0; /* 0 = not a reprocessing request (JXD docs) */
     memcpy(req.FrameControlProps, ctx->default_ctrl_props,
            sizeof(req.FrameControlProps));
 

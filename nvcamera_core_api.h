@@ -194,10 +194,17 @@ typedef struct {
  * Frame capture request (from nvcamera_core.h)
  * Simplified — full version has FrameControlProps etc.
  */
+/*
+ * Actual sizes measured on MIUI 4.4 blobs via pattern-fill test:
+ *   NvCamProperty_Public_Controls = 820 bytes
+ *   NvCamProperty_Public_Dynamic  = unknown (PartialResult info_size=57744 includes more)
+ * These MUST match the stock blob layout exactly.
+ */
+#define NVCAM_CONTROLS_SIZE 820
+
 typedef struct {
     NvU32 FrameNumber;
-    /* NvCamProperty_Public_Controls FrameControlProps; -- opaque for now */
-    uint8_t FrameControlProps[4096]; /* opaque blob, zero-filled */
+    uint8_t FrameControlProps[NVCAM_CONTROLS_SIZE];
     NvMMBuffer *pInputBuffer;
     NvU32 NumOfOutputBuffers;
     NvMMBuffer **ppOutputBuffers;
@@ -205,10 +212,10 @@ typedef struct {
     NvRect crop_rect;
 } NvCameraCoreFrameCaptureRequest;
 
-/* Frame capture result */
+/* Frame capture result — passed in CompletedBuffer callback info */
 typedef struct {
     NvU32 FrameNumber;
-    uint8_t FrameDynamicProps[4096]; /* opaque blob */
+    uint8_t FrameDynamicProps[57744]; /* measured from PartialResult info_size */
     NvU32 NumCompletedOutputBuffers;
     NvMMBuffer **ppOutputBuffers;
 } NvCameraCoreFrameCaptureResult;
