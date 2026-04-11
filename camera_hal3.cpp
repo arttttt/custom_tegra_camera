@@ -585,7 +585,7 @@ static int hal3_process_capture_request(const camera3_device_t *dev,
 
     /* Wait for CompletedBuffer (max 500ms) */
     int wait_ms = 0;
-    while (!ctx->frame_done && wait_ms < 500) {
+    while (!ctx->frame_done && wait_ms < 5000) {
         usleep(1000);
         wait_ms++;
     }
