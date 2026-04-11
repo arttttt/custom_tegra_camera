@@ -178,28 +178,24 @@ static camera_metadata_t *build_static_info(int camera_id)
     /* --- android.scaler --- */
     int32_t formats[] = {0x20, 0x22, 0x11, 0x100, 0x23}; /* 5 formats like stock */
     float max_zoom = 1.0f;
-    /*
-     * OV5693 processed sizes.
-     * Note: 2048x1536 (screen size) excluded for now — NVIDIA gralloc fails to
-     * allocate IMPLEMENTATION_DEFINED buffers at this size without NvCameraCore
-     * stream setup. TODO: add addStreams() integration.
-     */
+    /* OV5693 processed sizes (matching stock dump) */
     int32_t proc_sizes[] = {
-        2592, 1944, 1920, 1080, 1600, 1200,
+        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
         1280, 960,  1280, 720,  1024, 768,  960,  720,
         800,  600,  720,  480,  640,  480,  352,  288,
         320,  240,  176,  144,  160,  120,  2592, 1944,
-        1920, 1080, 1600, 1200, 1280, 960,  1280, 720,
+        2048, 1536, 1920, 1080, 1600, 1200, 1280, 960,
+        1280, 720,
     };
     int32_t n_proc = sizeof(proc_sizes) / sizeof(proc_sizes[0]);
-    int64_t proc_dur[19]; for (int i = 0; i < 19; i++) proc_dur[i] = 33333333LL;
+    int64_t proc_dur[21]; for (int i = 0; i < 21; i++) proc_dur[i] = 33333333LL;
     int32_t jpeg_sizes[] = {
-        2592, 1944, 1920, 1080, 1600, 1200,
+        2592, 1944, 2048, 1536, 1920, 1080, 1600, 1200,
         1280, 960,  1280, 720,  1024, 768,  640,  480,
         320,  240,
     };
     int32_t n_jpeg = sizeof(jpeg_sizes) / sizeof(jpeg_sizes[0]);
-    int64_t jpeg_dur[8]; for (int i = 0; i < 8; i++) jpeg_dur[i] = 33333333LL;
+    int64_t jpeg_dur[9]; for (int i = 0; i < 9; i++) jpeg_dur[i] = 33333333LL;
     int32_t raw_sizes[] = {2592, 1944, 2592, 1944, 2592, 1944, 2592, 1944};
     int64_t raw_dur[] = {33333333LL, 33333333LL, 33333333LL, 33333333LL};
 
